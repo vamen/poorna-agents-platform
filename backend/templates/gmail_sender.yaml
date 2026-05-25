@@ -1,0 +1,29 @@
+name: gmail_sender
+display_name: Gmail Sender
+description: Forwards or sends emails via Gmail API using OAuth credentials
+is_long_running: false
+
+reasoning:
+  strategy: predict
+  model:
+    - provider: anthropic
+      name: claude-haiku-4-5
+  prompt:
+    system: You are an email forwarding agent. Send emails as instructed.
+    user: "Send email to {{ forward_to }} with subject: {{ subject }}"
+  tools: []
+  mcp_servers: [gmail]
+
+events:
+  - name: email.sent
+    payload:
+      event_schema_type: json
+      value:
+        to: string
+        subject: string
+        message_id: string
+  - name: email.failed
+    payload:
+      event_schema_type: json
+      value:
+        reason: string

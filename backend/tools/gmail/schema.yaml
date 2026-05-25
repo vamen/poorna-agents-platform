@@ -1,0 +1,80 @@
+# Gmail MCP Server — config/credential schema
+# Pure JSON Schema (YAML syntax). No UI hints here.
+# Consumed by: backend validation, CLI, tests, non-UI API consumers.
+#
+# $schema: https://json-schema.org/draft/2020-12/schema
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Gmail Config
+description: Configuration and credentials for the Gmail MCP server.
+
+type: object
+required: [gmail_address, credential]
+additionalProperties: false
+
+properties:
+
+  gmail_address:
+    type: string
+    format: email
+    description: The Gmail address to watch / interact with.
+
+  label_filter:
+    type: string
+    default: INBOX
+    description: >
+      Gmail label to watch. Defaults to INBOX.
+      Use any Gmail label name (case-sensitive).
+
+  sender_filter:
+    type: string
+    description: >
+      Optional. Only process emails from this sender address.
+      Leave blank to process all senders.
+
+  credential:
+    type: object
+    required: [credential_type]
+    description: Authentication credentials.
+    properties:
+      credential_type:
+        type: string
+        enum: [oauth2, service_account]
+        description: >
+          oauth2          — User grants access via Google OAuth (recommended).
+          service_account — GCP service account JSON key (for server-to-server).
+
+    # ── oauth2 branch ────────────────────────────────────────────────────────
+    if:
+      properties:
+        credential_type:
+          const: oauth2
+    then:
+      required: [credential_type, access_token, refresh_token]
+      additionalProperties: false
+      properties:
+        credential_type:
+          type: string
+          const: oauth2
+        access_token:
+          type: string
+          description: Short-lived Google access token.
+        refresh_token:
+          type: string
+          description: Long-lived refresh token for obtaining new access tokens.
+        token_expiry:
+          type: string
+          format: date-time
+          description: ISO-8601 UTC expiry timestamp of the current access token.
+
+    # ── service_account branch ───────────────────────────────────────────────
+    else:
+      required: [credential_type, service_account_json]
+      additionalProperties: false
+      properties:
+        credential_type:
+          type: string
+          const: service_account
+        service_account_json:
+          type: string
+          description: Full JSON content of the GCP service account key file.

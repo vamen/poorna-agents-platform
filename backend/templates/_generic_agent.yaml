@@ -1,0 +1,266 @@
+# Agent Definition Schema — v2
+#
+# This is a JSON Schema written in YAML syntax.
+# Every custom agent definition must conform to this schema.
+# Predefined platform templates also follow this schema.
+#
+# $schema: https://json-schema.org/draft/2020-12/schema
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Agent Definition
+description: Schema for defining an AI agent type on the platform.
+
+type: object
+required: [name, display_name, reasoning, events]
+additionalProperties: false
+
+properties:
+
+  # ── Identity ────────────────────────────────────────────────────────────────
+
+  name:
+    type: string
+    pattern: "^[a-z][a-z0-9_]*$"
+    description: >
+      Unique snake_case identifier within your org.
+      Immutable after creation. e.g. "resume_scorer", "invoice_classifier".
+
+  display_name:
+    type: string
+    minLength: 1
+    description: Human-readable label shown in the canvas palette.
+
+  description:
+    type: string
+    description: Short description of what this agent does.
+
+  is_long_running:
+    type: boolean
+    default: false
+    description: >
+      false (default) — single-shot activity. Runs once, emits an event, done.
+      true  — durable process. Runs indefinitely (watchers, listeners, pollers).
+      Affects how the runtime schedules and manages the agent in Phase 2.
+
+  # ── Reasoning ───────────────────────────────────────────────────────────────
+  # Model, prompt, tools, and strategy all live here because the model only
+  # ever exists to execute the reasoning strategy.
+
+  reasoning:
+    type: object
+    required: [strategy, model, prompt]
+    additionalProperties: false
+    properties:
+
+      strategy:
+        type: string
+        enum: [predict, cot, react]
+        description: >
+          predict — bare LLM call. No scaffolding. Mirrors DSPy Predict.
+          cot     — Chain-of-Thought. Appends step-by-step reasoning suffix.
+          react   — ReAct loop. Thought → Action → Observation cycles.
+                    Requires tools. Uses max_iterations to bound the loop.
+
+      max_iterations:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 10
+        description: >
+          react only. Maximum Thought/Action/Observation cycles before the
+          agent is forced to emit a final answer.
+
+      model:
+        type: array
+        minItems: 1
+        description: >
+          Ordered list of models. First entry is primary.
+          Subsequent entries are tried in order if the primary fails.
+        items:
+          type: object
+          required: [provider, name]
+          additionalProperties: false
+          properties:
+            provider:
+              type: string
+              enum: [openai, anthropic, google, azure, ollama]
+            name:
+              type: string
+              description: >
+                Model identifier for the chosen provider.
+                openai    → gpt-4o, gpt-4-turbo, gpt-4o-mini, gpt-3.5-turbo
+                anthropic → claude-3-5-sonnet-20241022, claude-3-haiku-20240307
+                google    → gemini-1.5-pro, gemini-1.5-flash
+                azure     → your-deployment-name
+                ollama    → llama3, mistral, gemma2, phi3
+            api_key:
+              type: string
+              description: >
+                API key for this provider.
+                Stored plain-text in DB for Phase 1.
+                TODO Phase 2: replace with secret_ref → AWS Secrets Manager.
+
+      prompt:
+        type: object
+        required: [system, user]
+        additionalProperties: false
+        description: >
+          Prompt templates. Variables from StandardMessage are available:
+            {{ name }}           Agent name
+            {{ event_name }}     Triggering event e.g. "email.received"
+            {{ payload }}        Event payload as pretty-printed JSON
+            {{ session_id }}     Workflow session UUID
+            {{ from_agent_id }}  UUID of the upstream agent
+            {{ timestamp }}      ISO-8601 UTC datetime
+
+          At runtime the strategy suffix is appended automatically:
+            cot    → "Think through this step by step..."
+            react  → Thought/Action/Observation loop instructions + tool docs
+            predict → prompt used as-is, no suffix
+        properties:
+          system:
+            type: string
+            minLength: 1
+            description: Sets the agent's role and behavior.
+          user:
+            type: string
+            minLength: 1
+            description: Rendered per-message with StandardMessage variables.
+
+      tools:
+        type: array
+        default: []
+        description: >
+          Standard platform tools this agent may call.
+          Only meaningful for react strategy.
+          Available tools:
+            http_request       — HTTP GET/POST/PUT/DELETE to any URL
+            send_email         — Send plain-text email via SMTP         [phase 2]
+            send_telegram      — Send Telegram message via bot          [phase 2]
+            extract_json_field — Extract a nested field from payload
+            render_template    — Render a Jinja2 template string
+        items:
+          type: string
+          enum:
+            - http_request
+            - send_email
+            - send_telegram
+            - extract_json_field
+            - render_template
+
+      mcp_servers:
+        type: array
+        default: []
+        description: >
+          MCP servers this agent connects to.
+          Each entry must match a tool definition in tools/<name>/meta.yaml.
+          Credentials for each server are stored separately in agent_tool_configs.
+          Available servers:
+            gmail — Gmail inbox access via the Gmail MCP server      [phase 2]
+        items:
+          type: string
+          enum:
+            - gmail
+
+    # Polymorphic: max_iterations is required when strategy is react
+    if:
+      properties:
+        strategy:
+          const: react
+    then:
+      required: [max_iterations, tools]
+
+  # ── Events ──────────────────────────────────────────────────────────────────
+  # The agent's contract with the outside world.
+  # REQUIRED — at least one event must be defined.
+  # Convention: always include a failure/error event.
+
+  events:
+    type: array
+    minItems: 1
+    description: Output events this agent can emit.
+    items:
+      type: object
+      required: [name, payload]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          description: >
+            dot.notation event name. e.g. "result.success", "email.received".
+        payload:
+          type: object
+          required: [event_schema_type]
+          additionalProperties: false
+          properties:
+            event_schema_type:
+              type: string
+              enum: [json, string]
+              description: >
+                json   — payload is a structured object. Define fields in value.
+                string — payload is a plain string. No value schema needed.
+            value:
+              description: >
+                json type   → map of field_name to type string.
+                              e.g. {result: string, score: number, ok: boolean}
+                string type → omit or set to "string".
+              oneOf:
+            # json shape
+                - type: object
+                  additionalProperties:
+                    type: string
+                    enum: [string, number, boolean, object, array, any]
+            # string shape
+                - type: string
+                  const: string
+
+          # value is required when event_schema_type is json
+          if:
+            properties:
+              event_schema_type:
+                const: json
+          then:
+            required: [value]
+
+# ── Example (filled-in) ─────────────────────────────────────────────────────
+#
+# name: sentiment_analyzer
+# display_name: Sentiment Analyzer
+# description: Classifies text sentiment and scores confidence.
+# is_long_running: false
+#
+# reasoning:
+#   strategy: cot
+#   model:
+#     - provider: openai
+#       name: gpt-4o
+#       api_key: "sk-..."
+#     - provider: anthropic
+#       name: claude-3-haiku-20240307
+#       api_key: "sk-ant-..."   # fallback
+#   prompt:
+#     system: |
+#       You are a sentiment analysis expert.
+#       Classify the sentiment as positive, negative, or neutral.
+#     user: |
+#       Analyse the sentiment of the following:
+#       {{ payload }}
+#   tools: []
+#
+# events:
+#   - name: sentiment.positive
+#     payload:
+#       event_schema_type: json
+#       value:
+#         score: number
+#         label: string
+#   - name: sentiment.negative
+#     payload:
+#       event_schema_type: json
+#       value:
+#         score: number
+#         label: string
+#   - name: sentiment.error
+#     payload:
+#       event_schema_type: string

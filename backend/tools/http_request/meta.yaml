@@ -1,0 +1,10 @@
+# HTTP Request Tool — metadata
+# Consumed by: canvas palette, agent editor, CLI.
+
+name: http_request
+display_name: HTTP Request
+description: Make authenticated HTTP calls to any REST API.
+kind: tool             # tool | mcp_server
+phase: 1               # available now
+icon: globe
+docs_url: null

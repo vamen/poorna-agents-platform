@@ -1,0 +1,47 @@
+# ── Secrets & credentials ────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+backend/google_client_secret.json
+*_secret.json
+*_credentials.json
+*.pem
+*.key
+
+# ── Databases ────────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Python ───────────────────────────────────────────────────────────────────
+backend/.venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Node / JS ────────────────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+auth/dist/
+*.tsbuildinfo
+
+# ── OS & editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Logs & temp ──────────────────────────────────────────────────────────────
+*.log
+nohup.out
+/tmp/

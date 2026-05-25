@@ -1,0 +1,75 @@
+# HTTP Request Tool — UI rendering hints
+# Consumed by: frontend form renderer only.
+
+order:
+  - base_url
+  - default_headers
+  - credential.credential_type
+  - credential.key
+  - credential.header_name
+  - credential.token
+  - credential.username
+  - credential.password
+
+fields:
+
+  - path: base_url
+    label: Base URL
+    widget: url
+    placeholder: https://api.example.com/v1
+    help: Prepended to every HTTP request made by this agent.
+
+  - path: default_headers
+    label: Default Headers
+    widget: key_value
+    help: >
+      Key-value pairs added to every request.
+      Useful for Accept, Content-Type, or version headers.
+
+  - path: credential.credential_type
+    label: Authentication
+    widget: select
+    options:
+      - value: none
+        label: No Auth
+      - value: api_key
+        label: API Key
+      - value: bearer
+        label: Bearer Token
+      - value: basic
+        label: Basic Auth (username / password)
+
+  # api_key fields
+  - path: credential.key
+    label: API Key
+    widget: password
+    condition: "credential.credential_type == 'api_key'"
+    placeholder: sk-...
+    sensitive: true
+
+  - path: credential.header_name
+    label: Header Name
+    widget: text
+    condition: "credential.credential_type == 'api_key'"
+    placeholder: X-API-Key
+    help: The HTTP header the key is sent in.
+
+  # bearer fields
+  - path: credential.token
+    label: Bearer Token
+    widget: password
+    condition: "credential.credential_type == 'bearer'"
+    placeholder: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    sensitive: true
+
+  # basic auth fields
+  - path: credential.username
+    label: Username
+    widget: text
+    condition: "credential.credential_type == 'basic'"
+
+  - path: credential.password
+    label: Password
+    widget: password
+    condition: "credential.credential_type == 'basic'"
+    sensitive: true

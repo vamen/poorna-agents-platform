@@ -1,0 +1,37 @@
+name: api_caller
+display_name: API Caller
+description: Makes a configured HTTP call when triggered and emits the response.
+is_long_running: false
+
+reasoning:
+  strategy: react
+  max_iterations: 3
+  model:
+    - provider: openai
+      name: gpt-4o
+  prompt:
+    system: |
+      You are an API calling agent.
+      Your job is to make the HTTP request described in the payload and return the result.
+      Use the http_request tool exactly once. Do not infer or change the request parameters.
+    user: |
+      Make the following HTTP request and emit the result.
+
+      Event: {{ event_name }}
+      Payload: {{ payload }}
+  tools:
+    - http_request
+
+events:
+  - name: api.success
+    payload:
+      event_schema_type: json
+      value:
+        status_code: number
+        response: object
+  - name: api.failure
+    payload:
+      event_schema_type: json
+      value:
+        status_code: number
+        error: string

@@ -1,0 +1,14 @@
+# Gmail MCP Server — metadata
+# Consumed by: canvas palette, agent editor, CLI
+# Does NOT include schema or UI hints — see schema.yaml and ui.yaml.
+
+name: gmail
+display_name: Gmail
+description: Connect to a Gmail inbox via the official Gmail MCP server.
+kind: mcp_server       # tool | mcp_server
+phase: 2               # 1 = available now, 2 = Phase 2 only
+icon: gmail
+docs_url: https://developers.google.com/gmail/api
+
+# The OAuth provider used to obtain credentials.
+oauth_provider: google

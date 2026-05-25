@@ -1,0 +1,106 @@
+# HTTP Request Tool — config/credential schema
+# Pure JSON Schema (YAML syntax). No UI hints here.
+#
+# $schema: https://json-schema.org/draft/2020-12/schema
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: HTTP Request Config
+description: Base URL and auth credentials for the HTTP Request tool.
+
+type: object
+required: [base_url, credential]
+additionalProperties: false
+
+properties:
+
+  base_url:
+    type: string
+    format: uri
+    description: >
+      Base URL prepended to all requests made by this agent.
+      e.g. "https://api.stripe.com/v1"
+
+  default_headers:
+    type: object
+    additionalProperties:
+      type: string
+    description: >
+      Headers sent with every request.
+      e.g. {"Accept": "application/json", "X-Version": "2"}
+
+  credential:
+    type: object
+    required: [credential_type]
+    description: Authentication strategy for outbound requests.
+    properties:
+      credential_type:
+        type: string
+        enum: [none, api_key, bearer, basic]
+        description: >
+          none    — no authentication headers added.
+          api_key — single key sent as a request header.
+          bearer  — OAuth / JWT token in Authorization: Bearer header.
+          basic   — HTTP Basic Auth (username + password).
+
+    # ── none branch ──────────────────────────────────────────────────────────
+    if:
+      properties:
+        credential_type:
+          const: none
+    then:
+      additionalProperties: false
+      properties:
+        credential_type:
+          type: string
+          const: none
+
+    else:
+      # ── api_key branch ────────────────────────────────────────────────────
+      if:
+        properties:
+          credential_type:
+            const: api_key
+      then:
+        required: [credential_type, key, header_name]
+        additionalProperties: false
+        properties:
+          credential_type:
+            type: string
+            const: api_key
+          key:
+            type: string
+            description: The API key value.
+          header_name:
+            type: string
+            default: X-API-Key
+            description: Name of the request header to send the key in.
+
+      else:
+        # ── bearer branch ──────────────────────────────────────────────────
+        if:
+          properties:
+            credential_type:
+              const: bearer
+        then:
+          required: [credential_type, token]
+          additionalProperties: false
+          properties:
+            credential_type:
+              type: string
+              const: bearer
+            token:
+              type: string
+              description: Bearer token value (without the "Bearer " prefix).
+
+        # ── basic branch ───────────────────────────────────────────────────
+        else:
+          required: [credential_type, username, password]
+          additionalProperties: false
+          properties:
+            credential_type:
+              type: string
+              const: basic
+            username:
+              type: string
+            password:
+              type: string

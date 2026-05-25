@@ -1,0 +1,40 @@
+name: telegram_gateway
+display_name: Telegram Gateway
+description: Sends and receives messages via a configured Telegram bot.
+is_long_running: true
+
+reasoning:
+  strategy: predict
+  model:
+    - provider: openai
+      name: gpt-4o
+  prompt:
+    system: |
+      You are a Telegram gateway agent.
+      When triggered, send the message in the payload to the configured chat
+      and listen for incoming replies. Emit events for both sent and received messages.
+    user: |
+      Process the following Telegram interaction.
+
+      Event: {{ event_name }}
+      Payload: {{ payload }}
+  tools:
+    - send_telegram
+
+events:
+  - name: message.received
+    payload:
+      event_schema_type: json
+      value:
+        chat_id: string
+        text: string
+        user_id: string
+  - name: message.sent
+    payload:
+      event_schema_type: json
+      value:
+        chat_id: string
+        message_id: string
+  - name: message.error
+    payload:
+      event_schema_type: string

@@ -1,0 +1,36 @@
+name: gmail_watcher
+display_name: Gmail Watcher
+description: Monitors a Gmail inbox and emits an event for each matching email.
+is_long_running: true
+
+reasoning:
+  strategy: predict
+  model:
+    - provider: openai
+      name: gpt-4o
+  prompt:
+    system: |
+      You are a Gmail monitoring agent.
+      Poll the configured inbox, apply any filters, and emit an event for each
+      matching email. Extract subject, sender, body, and thread_id from the email.
+    user: |
+      Check the inbox for new emails matching the filter criteria.
+
+      Event: {{ event_name }}
+      Payload: {{ payload }}
+  tools: []
+  mcp_servers:
+    - gmail
+
+events:
+  - name: email.received
+    payload:
+      event_schema_type: json
+      value:
+        subject: string
+        sender: string
+        body: string
+        thread_id: string
+  - name: email.error
+    payload:
+      event_schema_type: string

@@ -1,0 +1,33 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./app.db
+      - BETTER_AUTH_URL=http://auth:3000
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-changeme}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - auth
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      - VITE_AUTH_URL=http://localhost:3000
+    depends_on:
+      - backend
+
+  auth:
+    build: ./auth
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=file:./auth.db
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-changeme}
+    volumes:
+      - ./auth:/app/data

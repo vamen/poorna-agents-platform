@@ -1,0 +1,34 @@
+name: classifier
+display_name: Classifier
+description: Classifies input against configured criteria using LLM judgment.
+is_long_running: false
+
+reasoning:
+  strategy: cot
+  model:
+    - provider: openai
+      name: gpt-4o
+  prompt:
+    system: |
+      You are a classification agent.
+      Carefully read the input and classify it according to the criteria and categories
+      provided in the payload. Return your classification with a confidence score between
+      0.0 and 1.0 and any relevant extracted data.
+    user: |
+      Classify the following input.
+
+      Event: {{ event_name }}
+      Payload: {{ payload }}
+  tools: []
+
+events:
+  - name: classification.done
+    payload:
+      event_schema_type: json
+      value:
+        category: string
+        confidence: number
+        extracted_data: object
+  - name: classification.failed
+    payload:
+      event_schema_type: string

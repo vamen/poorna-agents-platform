@@ -1,0 +1,66 @@
+# Gmail MCP Server — UI rendering hints
+# Consumed by: frontend form renderer only.
+# References schema fields by dot-path.
+# Does NOT duplicate type information from schema.yaml.
+
+order:
+  - gmail_address
+  - label_filter
+  - sender_filter
+  - credential.credential_type
+  - credential          # the oauth2 button / service account textarea
+
+fields:
+
+  - path: gmail_address
+    label: Gmail Address
+    widget: email
+    placeholder: you@gmail.com
+    help: The Gmail inbox this agent will monitor.
+
+  - path: label_filter
+    label: Label Filter
+    widget: text
+    placeholder: INBOX
+    help: Gmail label to watch. Leave blank for INBOX.
+
+  - path: sender_filter
+    label: Sender Filter
+    widget: email
+    placeholder: noreply@acme.com
+    help: Optional. Only process emails from this address.
+
+  - path: credential.credential_type
+    label: Authentication Method
+    widget: select
+    options:
+      - value: oauth2
+        label: Sign in with Google (OAuth)
+      - value: service_account
+        label: Service Account Key
+
+  # shown only when oauth2 is selected
+  - path: credential
+    label: ""
+    widget: oauth2_button
+    condition: "credential.credential_type == 'oauth2'"
+    oauth2_provider: google
+    button_text: Connect Gmail Account
+    connected_text: Gmail Connected
+    help: >
+      Click to authorise access to the Gmail inbox above.
+      You will be redirected to Google's consent screen.
+
+  # shown only when service_account is selected
+  - path: credential.service_account_json
+    label: Service Account JSON
+    widget: textarea
+    condition: "credential.credential_type == 'service_account'"
+    placeholder: |
+      {
+        "type": "service_account",
+        "project_id": "...",
+        ...
+      }
+    help: Paste the full JSON content of your GCP service account key file.
+    sensitive: true
