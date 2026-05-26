@@ -37,6 +37,11 @@ class GmailWatcherAgent(BaseAgent):
         subject = self.config.get("subject_filter", "")
         if subject:
             parts.append(f'subject:"{subject}"')
+        if self.config.get("has_attachment"):
+            parts.append("has:attachment")
+        filename = self.config.get("filename_filter", "")
+        if filename:
+            parts.append(f"filename:{filename}")
         parts.append("is:unread")
         return " ".join(parts)
 
@@ -60,6 +65,9 @@ class GmailWatcherAgent(BaseAgent):
         stubs = list_messages(service, query, max_results=10)
         events: list[dict] = []
 
+        fetch_attachments = self.config.get("fetch_attachments", False)
+        filename_filter = self.config.get("filename_filter", "").lower()
+
         for stub in stubs:
             msg_id = stub["id"]
             if msg_id in seen_ids:
@@ -72,6 +80,22 @@ class GmailWatcherAgent(BaseAgent):
             seen_ids.add(msg_id)
             mark_as_read(service, msg_id)
 
+            # Optionally download attachment bytes (base64) for downstream agents
+            attachment_payloads: list[dict] = []
+            if fetch_attachments and msg.get("attachments"):
+                from runtime.gmail_client import get_attachment
+                import base64
+                for att in msg["attachments"]:
+                    # Filter by extension if configured
+                    if filename_filter and not att["filename"].lower().endswith(filename_filter):
+                        continue
+                    raw = get_attachment(service, msg_id, att["attachment_id"])
+                    attachment_payloads.append({
+                        "filename": att["filename"],
+                        "mime_type": att["mime_type"],
+                        "data_b64": base64.b64encode(raw).decode("utf-8"),
+                    })
+
             events.append({
                 "event": "gmail_watcher.email.received",
                 "payload": {
@@ -82,6 +106,7 @@ class GmailWatcherAgent(BaseAgent):
                     "to": msg["to"],
                     "body": msg["body"],
                     "snippet": msg["snippet"],
+                    "attachments": attachment_payloads,
                 },
             })
 

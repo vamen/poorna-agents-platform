@@ -39,15 +39,15 @@ from dataclasses import dataclass, field
 @dataclass
 class PollInput:
     agent_type: str
-    agent_config: dict  # agent instance config (sender_filter, etc.)
-    tool_config: dict   # credential blob from agent_tool_configs
-    seen_ids: list[str]
+    agent_config: dict   # agent instance config (sender_filter, etc.)
+    tool_config: dict    # credential blob from agent_tool_configs
+    agent_id: str        # DB id of this agent — used to key agent_state
+    workflow_id: str     # DB id of parent workflow — used to key agent_state
 
 
 @dataclass
 class PollOutput:
     events: list[dict]
-    seen_ids: list[str]
 
 
 @dataclass
@@ -77,18 +77,31 @@ class GraphWorkflowInput:
 
 @activity.defn
 async def poll_trigger_activity(inp: PollInput) -> PollOutput:
-    """Poll a long-running trigger agent (e.g. GmailWatcher) for new events."""
+    """Poll a long-running trigger agent (e.g. GmailWatcher) for new events.
+
+    seen_ids are loaded from agent_state at the start of each poll and saved
+    back after, so they survive worker restarts.
+    """
     from agents import instantiate_agent
+    from services.agent_state_service import get_state, set_state
 
     agent = instantiate_agent(inp.agent_type, inp.agent_config)
-    seen = set(inp.seen_ids)
+
+    # Load persisted seen_ids from DB (empty list on first run)
+    seen_list: list[str] = await get_state(
+        inp.agent_id, inp.workflow_id, "seen_ids", default=[]
+    )
+    seen = set(seen_list)
 
     if hasattr(agent, "poll"):
         events = await agent.poll(inp.tool_config.get("credential", {}), seen)
     else:
         events = []
 
-    return PollOutput(events=events, seen_ids=list(seen))
+    # Persist updated seen_ids back to DB
+    await set_state(inp.agent_id, inp.workflow_id, "seen_ids", list(seen))
+
+    return PollOutput(events=events)
 
 
 @activity.defn
@@ -143,27 +156,25 @@ class GraphWorkflow:
         trigger_agent_type = trigger_data.get("agentType", "")
         trigger_cfg = inp.agent_db_configs.get(trigger_agent_db_id, {})
 
-        seen_ids: list[str] = []
-
         workflow.logger.info(
             "GraphWorkflow started — trigger=%s  poll_interval=%ds",
             trigger_agent_type, inp.poll_interval,
         )
 
         while True:
-            # Poll the trigger
+            # Poll the trigger (seen_ids are persisted in agent_state DB table)
             poll_out: PollOutput = await workflow.execute_activity(
                 poll_trigger_activity,
                 PollInput(
                     agent_type=trigger_agent_type,
                     agent_config=trigger_cfg.get("config", {}),
                     tool_config=trigger_cfg.get("tool_config", {}),
-                    seen_ids=seen_ids,
+                    agent_id=trigger_agent_db_id,
+                    workflow_id=inp.workflow_id,
                 ),
                 start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            seen_ids = poll_out.seen_ids
 
             # Process each incoming event through the graph
             for event in poll_out.events:

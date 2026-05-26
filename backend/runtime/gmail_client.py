@@ -65,8 +65,8 @@ def get_message(service, msg_id: str) -> dict | None:
         return None
 
     headers = {h["name"].lower(): h["value"] for h in msg["payload"].get("headers", [])}
-
     body = _extract_body(msg["payload"])
+    attachments = _extract_attachments(msg["payload"])
 
     return {
         "id": msg_id,
@@ -78,7 +78,43 @@ def get_message(service, msg_id: str) -> dict | None:
         "body": body,
         "snippet": msg.get("snippet", ""),
         "label_ids": msg.get("labelIds", []),
+        "attachments": attachments,
     }
+
+
+def _extract_attachments(payload: dict) -> list[dict]:
+    """Walk the MIME tree and collect attachment metadata (no bytes yet)."""
+    results: list[dict] = []
+    _walk_attachments(payload, results)
+    return results
+
+
+def _walk_attachments(part: dict, results: list[dict]) -> None:
+    filename = part.get("filename", "")
+    body = part.get("body", {})
+    attachment_id = body.get("attachmentId")
+    if filename and attachment_id:
+        results.append({
+            "filename": filename,
+            "attachment_id": attachment_id,
+            "mime_type": part.get("mimeType", "application/octet-stream"),
+            "size": body.get("size", 0),
+        })
+    for sub in part.get("parts", []):
+        _walk_attachments(sub, results)
+
+
+def get_attachment(service, msg_id: str, attachment_id: str) -> bytes:
+    """Download and return raw attachment bytes."""
+    try:
+        result = service.users().messages().attachments().get(
+            userId="me", messageId=msg_id, id=attachment_id
+        ).execute()
+        data = result.get("data", "")
+        return base64.urlsafe_b64decode(data + "==")
+    except HttpError as e:
+        logger.error("Gmail get_attachment error: %s", e)
+        return b""
 
 
 def _extract_body(payload: dict) -> str:

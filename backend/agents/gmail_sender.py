@@ -31,38 +31,43 @@ class GmailSenderAgent(BaseAgent):
         (from the classifier's ``original_payload`` field) plus
         classification details.
         """
-        forward_to = self.config.get("forward_to", "")
         credential = self.config.get("_credential", {})
 
-        if not forward_to:
-            return {
-                "event": "gmail_sender.email.failed",
-                "payload": {"reason": "forward_to not configured"},
-            }
         if not credential:
             return {
                 "event": "gmail_sender.email.failed",
                 "payload": {"reason": "Gmail credential not configured"},
             }
 
-        original = payload.get("original_payload", payload)
-        subject = original.get("subject", "(no subject)")
-        body = original.get("body", "")
-        sender = original.get("sender", "unknown")
-        category = payload.get("category", "unknown")
-        reasoning = payload.get("reasoning", "")
+        # Resolve recipient: payload.to_email > config.forward_to
+        forward_to = payload.get("to_email") or self.config.get("forward_to", "")
+        if not forward_to:
+            return {
+                "event": "gmail_sender.email.failed",
+                "payload": {"reason": "No recipient: set forward_to in config or provide to_email in payload"},
+            }
 
-        # Build forwarded body
-        forward_body = (
-            f"[Forwarded by Agent Platform — classified as '{category}']\n"
-            f"Reasoning: {reasoning}\n\n"
-            f"--- Original email ---\n"
-            f"From: {sender}\n"
-            f"Subject: {subject}\n\n"
-            f"{body}"
-        )
+        # If payload carries a pre-composed assignment, send it directly
+        if payload.get("assignment_text"):
+            fwd_subject = payload.get("subject", "Assignment")
+            forward_body = payload["assignment_text"]
+        else:
+            original = payload.get("original_payload", payload)
+            subject = original.get("subject", "(no subject)")
+            body = original.get("body", "")
+            sender = original.get("sender", "unknown")
+            category = payload.get("category", "unknown")
+            reasoning = payload.get("reasoning", "")
 
-        fwd_subject = f"Fwd: {subject}"
+            forward_body = (
+                f"[Forwarded by Agent Platform — classified as '{category}']\n"
+                f"Reasoning: {reasoning}\n\n"
+                f"--- Original email ---\n"
+                f"From: {sender}\n"
+                f"Subject: {subject}\n\n"
+                f"{body}"
+            )
+            fwd_subject = f"Fwd: {subject}"
 
         from runtime.gmail_client import get_gmail_service, send_message
         try:

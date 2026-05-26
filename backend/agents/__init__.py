@@ -6,6 +6,8 @@ from agents.gmail_sender import GmailSenderAgent
 from agents.telegram_gateway import TelegramGatewayAgent
 from agents.classifier import ClassifierAgent
 from agents.api_caller import ApiCallerAgent
+from agents.pdf_parser import PdfParserAgent
+from agents.assignment_generator import AssignmentGeneratorAgent
 
 _ALL_AGENTS: list[type[BaseAgent]] = [
     GmailWatcherAgent,
@@ -13,6 +15,8 @@ _ALL_AGENTS: list[type[BaseAgent]] = [
     TelegramGatewayAgent,
     ClassifierAgent,
     ApiCallerAgent,
+    PdfParserAgent,
+    AssignmentGeneratorAgent,
 ]
 
 AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
@@ -37,5 +41,5 @@ def instantiate_agent(type_name: str, config: dict) -> BaseAgent:
 __all__ = [
     "BaseAgent", "AGENT_REGISTRY", "get_agent_class", "instantiate_agent",
     "GmailWatcherAgent", "GmailSenderAgent", "TelegramGatewayAgent",
-    "ClassifierAgent", "ApiCallerAgent",
+    "ClassifierAgent", "ApiCallerAgent", "PdfParserAgent", "AssignmentGeneratorAgent",
 ]

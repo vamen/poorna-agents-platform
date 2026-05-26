@@ -1,0 +1,33 @@
+name: pdf_parser
+display_name: PDF Parser
+description: Extracts structured candidate profile (name, email, experience, skills) from a PDF resume attachment.
+is_long_running: false
+
+reasoning:
+  strategy: cot
+  model:
+    - provider: anthropic
+      name: claude-haiku-4-5
+  prompt:
+    system: You are a resume parsing agent. Extract structured information from PDF resume text.
+    user: "Parse the resume and extract: name, email, years of experience, current role, and skills."
+  tools: []
+
+events:
+  - name: resume.parsed
+    payload:
+      event_schema_type: json
+      value:
+        candidate_name: string
+        candidate_email: string
+        candidate_phone: string
+        current_role: string
+        current_company: string
+        years_of_experience: number
+        skills: array
+        experience_summary: string
+  - name: parse.failed
+    payload:
+      event_schema_type: json
+      value:
+        reason: string

@@ -123,6 +123,28 @@ class AgentToolConfig(Base):
     agent = relationship("Agent", back_populates="tool_configs")
 
 
+class AgentState(Base):
+    """Persistent key-value store for agent runtime state.
+
+    Keyed by (agent_id, workflow_id, key). Used by long-running agents like
+    GmailWatcher to persist cursor state (e.g. seen_ids) across worker restarts.
+    """
+
+    __tablename__ = "agent_state"
+    __table_args__ = (
+        UniqueConstraint("agent_id", "workflow_id", "key", name="uq_agent_state"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    agent_id = Column(String(36), nullable=False, index=True)
+    workflow_id = Column(String(36), nullable=False, index=True)
+    key = Column(String, nullable=False)
+    value = Column(JSON, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class AgentMessage(Base):
     __tablename__ = "agent_messages"
 

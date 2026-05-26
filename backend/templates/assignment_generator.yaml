@@ -1,0 +1,40 @@
+name: assignment_generator
+display_name: Assignment Generator
+description: Generates a tailored 2-3 hour technical take-home assignment based on a candidate's resume profile.
+is_long_running: false
+
+reasoning:
+  strategy: cot
+  model:
+    - provider: anthropic
+      name: claude-sonnet-4-5
+  prompt:
+    system: You are a senior engineering hiring manager. Generate focused, experience-matched technical assignments.
+    user: "Generate a take-home assignment for {{ candidate_name }} with {{ years_of_experience }} years of experience in {{ skills }}."
+  tools: []
+
+fields:
+  - name: company_name
+    type: string
+    required: false
+    default: "Agent Platform"
+    description: Company name to use in the assignment header
+  - name: role
+    type: string
+    required: false
+    description: Role being hired for (defaults to candidate's current role)
+
+events:
+  - name: assignment.ready
+    payload:
+      event_schema_type: json
+      value:
+        to_email: string
+        candidate_name: string
+        subject: string
+        assignment_text: string
+  - name: generation.failed
+    payload:
+      event_schema_type: json
+      value:
+        reason: string
