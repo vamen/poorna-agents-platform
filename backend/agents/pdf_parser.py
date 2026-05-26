@@ -36,30 +36,52 @@ class PdfParserAgent(BaseAgent):
             email_payload = payload["original_payload"]
 
         attachments = email_payload.get("attachments", [])
+        message_id = email_payload.get("message_id", "")
 
-        # Find the first PDF attachment
-        pdf_b64 = None
-        pdf_filename = "resume.pdf"
+        # Find the first PDF attachment descriptor
+        pdf_att = None
         for att in attachments:
             mime = att.get("mime_type", "")
             name = att.get("filename", "").lower()
             if "pdf" in mime or name.endswith(".pdf"):
-                pdf_b64 = att.get("data_b64", "")
-                pdf_filename = att.get("filename", pdf_filename)
+                pdf_att = att
                 break
 
-        if not pdf_b64:
+        if not pdf_att:
             return {
                 "event": "pdf_parser.parse.failed",
                 "payload": {
                     "reason": "No PDF attachment found in email",
-                    "original_payload": payload,
+                    "original_payload": email_payload,
                 },
             }
 
-        # Decode and extract text
+        # Download PDF bytes — either already embedded (data_b64) or fetch via Gmail API
         try:
-            pdf_bytes = base64.b64decode(pdf_b64)
+            if pdf_att.get("data_b64"):
+                pdf_bytes = base64.b64decode(pdf_att["data_b64"])
+            else:
+                credential = self.config.get("_credential", {})
+                if not credential:
+                    return {
+                        "event": "pdf_parser.parse.failed",
+                        "payload": {
+                            "reason": "No Gmail credential available to download attachment",
+                            "original_payload": email_payload,
+                        },
+                    }
+                from runtime.gmail_client import get_gmail_service, get_attachment
+                service = get_gmail_service(credential)
+                pdf_bytes = get_attachment(service, message_id, pdf_att["attachment_id"])
+        except Exception as exc:
+            logger.error("PDF download failed: %s", exc)
+            return {
+                "event": "pdf_parser.parse.failed",
+                "payload": {"reason": f"PDF download error: {exc}", "original_payload": email_payload},
+            }
+
+        # Extract text
+        try:
             raw_text = self._extract_text(pdf_bytes)
         except Exception as exc:
             logger.error("PDF text extraction failed: %s", exc)
@@ -71,7 +93,7 @@ class PdfParserAgent(BaseAgent):
         if not raw_text.strip():
             return {
                 "event": "pdf_parser.parse.failed",
-                "payload": {"reason": "PDF yielded no text", "original_payload": payload},
+                "payload": {"reason": "PDF yielded no text", "original_payload": email_payload},
             }
 
         # Use Claude to extract structured profile
@@ -81,7 +103,7 @@ class PdfParserAgent(BaseAgent):
             logger.error("Claude profile extraction failed: %s", exc)
             return {
                 "event": "pdf_parser.parse.failed",
-                "payload": {"reason": f"LLM extraction error: {exc}", "original_payload": payload},
+                "payload": {"reason": f"LLM extraction error: {exc}", "original_payload": email_payload},
             }
 
         logger.info(
