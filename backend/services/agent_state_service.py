@@ -34,18 +34,23 @@ async def get_state(
     default: Any = None,
 ) -> Any:
     """Return the stored value for *key*, or *default* if not found."""
+    import json as _json
+
     async with AsyncSessionLocal() as session:
-        row = await session.execute(
-            sa.select(AgentState).where(
-                AgentState.agent_id == agent_id,
-                AgentState.workflow_id == workflow_id,
-                AgentState.key == key,
-            )
-        )
-        state = row.scalar_one_or_none()
-        if state is None:
+        row = await session.execute(sa.text("""
+            SELECT value FROM agent_state
+            WHERE agent_id = :agent_id
+              AND workflow_id = :workflow_id
+              AND key = :key
+        """), {"agent_id": agent_id, "workflow_id": workflow_id, "key": key})
+        result = row.fetchone()
+        if result is None:
             return default
-        return state.value
+        val = result[0]
+        # Raw SQL returns a string; JSON columns return parsed — handle both
+        if isinstance(val, str):
+            return _json.loads(val)
+        return val
 
 
 async def set_state(
@@ -54,30 +59,36 @@ async def set_state(
     key: str,
     value: Any,
 ) -> None:
-    """Upsert *value* for *key* scoped to (agent_id, workflow_id)."""
+    """Upsert *value* for *key* scoped to (agent_id, workflow_id).
+
+    Uses a raw SQL upsert so updated_at is always refreshed, even when the
+    value hasn't changed (SQLAlchemy ORM skips UPDATEs for identical JSON).
+    """
+    import json
     from uuid import uuid4
 
+    value_json = json.dumps(value)
+    new_id = str(uuid4())
+
     async with AsyncSessionLocal() as session:
-        row = await session.execute(
-            sa.select(AgentState).where(
-                AgentState.agent_id == agent_id,
-                AgentState.workflow_id == workflow_id,
-                AgentState.key == key,
-            )
-        )
-        state = row.scalar_one_or_none()
-        if state is None:
-            session.add(AgentState(
-                id=str(uuid4()),
-                agent_id=agent_id,
-                workflow_id=workflow_id,
-                key=key,
-                value=value,
-            ))
-        else:
-            state.value = value
+        # SQLite UPSERT — always touches updated_at
+        await session.execute(sa.text("""
+            INSERT INTO agent_state (id, agent_id, workflow_id, key, value, updated_at)
+            VALUES (:id, :agent_id, :workflow_id, :key, :value, CURRENT_TIMESTAMP)
+            ON CONFLICT (agent_id, workflow_id, key)
+            DO UPDATE SET
+                value      = excluded.value,
+                updated_at = CURRENT_TIMESTAMP
+        """), {
+            "id": new_id,
+            "agent_id": agent_id,
+            "workflow_id": workflow_id,
+            "key": key,
+            "value": value_json,
+        })
         await session.commit()
         logger.debug(
-            "agent_state upsert: agent=%s workflow=%s key=%s",
-            agent_id, workflow_id, key,
+            "agent_state upsert: agent=%s workflow=%s key=%s count=%s",
+            agent_id[:8], workflow_id[:8], key,
+            len(value) if isinstance(value, (list, dict)) else "-",
         )
