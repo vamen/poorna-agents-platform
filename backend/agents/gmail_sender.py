@@ -47,6 +47,25 @@ class GmailSenderAgent(BaseAgent):
                 "payload": {"reason": "No recipient: set forward_to in config or provide to_email in payload"},
             }
 
+        # Walk the payload chain to find the original email from GmailWatcher
+        # Chain: assignment_generator.payload → pdf_parser.payload → gmail_watcher.payload
+        def _find_original_email(p: dict, depth: int = 0) -> dict:
+            """Recursively unwrap original_payload until we find an email with thread_id."""
+            if p.get("thread_id") and p.get("message_id"):
+                return p
+            inner = p.get("original_payload")
+            if isinstance(inner, dict) and depth < 5:
+                return _find_original_email(inner, depth + 1)
+            return p
+
+        original_email = _find_original_email(payload)
+        reply_to_msg = None
+        if original_email.get("thread_id") and original_email.get("message_id"):
+            reply_to_msg = {
+                "id": original_email["message_id"],
+                "thread_id": original_email["thread_id"],
+            }
+
         # If payload carries a pre-composed assignment, send it directly
         if payload.get("assignment_text"):
             fwd_subject = payload.get("subject", "Assignment")
@@ -72,8 +91,12 @@ class GmailSenderAgent(BaseAgent):
         from runtime.gmail_client import get_gmail_service, send_message
         try:
             service = get_gmail_service(credential)
-            msg_id = send_message(service, forward_to, fwd_subject, forward_body)
-            logger.info("Email forwarded to %s, msg_id=%s", forward_to, msg_id)
+            msg_id = send_message(
+                service, forward_to, fwd_subject, forward_body,
+                reply_to_msg=reply_to_msg,
+            )
+            logger.info("Email sent to %s (reply_thread=%s) msg_id=%s",
+                        forward_to, reply_to_msg is not None, msg_id)
         except Exception as exc:
             logger.error("GmailSender send failed: %s", exc)
             return {
