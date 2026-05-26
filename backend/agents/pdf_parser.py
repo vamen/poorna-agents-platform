@@ -29,7 +29,13 @@ class PdfParserAgent(BaseAgent):
     agent_type = "pdf_parser"
 
     async def run(self, event_name: str, payload: dict) -> dict:
-        attachments = payload.get("attachments", [])
+        # Support arriving directly from GmailWatcher OR via a Classifier node.
+        # Classifier wraps the original email as original_payload.
+        email_payload = payload
+        if "original_payload" in payload and "attachments" not in payload:
+            email_payload = payload["original_payload"]
+
+        attachments = email_payload.get("attachments", [])
 
         # Find the first PDF attachment
         pdf_b64 = None
@@ -91,7 +97,7 @@ class PdfParserAgent(BaseAgent):
             "payload": {
                 **profile,
                 "raw_text": raw_text[:3000],   # truncated for downstream context
-                "original_payload": payload,
+                "original_payload": email_payload,  # always the raw email for thread reply
             },
         }
 
