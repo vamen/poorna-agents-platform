@@ -1,0 +1,13 @@
+# LLM API Key — config/credential schema
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: LLM API Key
+description: API key used to authenticate with the LLM provider for this agent instance.
+
+type: object
+additionalProperties: false
+
+properties:
+  api_key:
+    type: string
+    description: "API key for the configured provider (e.g. sk-... for OpenAI, sk-ant-... for Anthropic)."

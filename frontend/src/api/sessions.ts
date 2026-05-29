@@ -3,8 +3,12 @@ import { apiClient } from './client'
 export interface AgentMessage {
   id: string
   session_id: string
-  from_agent_id: string
-  to_agent_id: string
+  sender_type: string
+  sender_ref_id: string
+  sender_name: string
+  recipient_type: string
+  recipient_ref_id: string
+  recipient_name: string
   event_name: string
   payload: Record<string, unknown> | null
   status: string

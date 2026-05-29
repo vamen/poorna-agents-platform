@@ -79,6 +79,7 @@ def get_message(service, msg_id: str) -> dict | None:
         "snippet": msg.get("snippet", ""),
         "label_ids": msg.get("labelIds", []),
         "attachments": attachments,
+        "internal_date": int(msg.get("internalDate", 0)),
     }
 
 

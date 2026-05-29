@@ -42,13 +42,7 @@ class ClassifierAgent(BaseAgent):
                 },
             }
 
-        from openai import OpenAI
-        from config import settings
-
-        client = OpenAI(
-            api_key=settings.anthropic_api_key,
-            base_url="https://api.anthropic.com/v1",
-        )
+        client = self._get_llm_client()
 
         prompt = f"""You are an email classifier. Classify the following email into one of these categories: {categories}
 

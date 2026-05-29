@@ -14,6 +14,8 @@ VALID_TOOLS = {
     "http_request",
     "send_email",
     "send_telegram",
+    "post_to_twitter",
+    "get_file",
     "extract_json_field",
     "render_template",
 }
@@ -54,7 +56,6 @@ class ModelEntry(BaseModel):
     """One model in the fallback chain."""
     provider: str
     name: str
-    api_key: Optional[str] = None
 
     @field_validator("provider")
     @classmethod
@@ -65,10 +66,9 @@ class ModelEntry(BaseModel):
 
 
 class ModelEntryResponse(BaseModel):
-    """Model entry as returned to clients — api_key is never included."""
+    """Model entry as returned to clients."""
     provider: str
     name: str
-    has_api_key: bool
 
 
 # ── Prompt ───────────────────────────────────────────────────────────────────
@@ -87,6 +87,7 @@ class ReasoningCreate(BaseModel):
     prompt: PromptSchema
     tools: list[str] = []
     mcp_servers: list[str] = []
+    context_messages: int = Field(default=0, ge=0, le=100)
 
     @field_validator("strategy")
     @classmethod
@@ -125,6 +126,7 @@ class ReasoningResponse(BaseModel):
     prompt: PromptSchema
     tools: list[str]
     mcp_servers: list[str] = []
+    context_messages: int = 0
 
 
 # ── Top-level definition ──────────────────────────────────────────────────────
@@ -183,7 +185,6 @@ class AgentDefinitionResponse(BaseModel):
             ModelEntryResponse(
                 provider=m["provider"],
                 name=m["name"],
-                has_api_key=bool(m.get("api_key")),
             )
             for m in reasoning_raw["model"]
         ]
@@ -194,6 +195,7 @@ class AgentDefinitionResponse(BaseModel):
             prompt=PromptSchema(**reasoning_raw["prompt"]),
             tools=reasoning_raw.get("tools", []),
             mcp_servers=reasoning_raw.get("mcp_servers", []),
+            context_messages=reasoning_raw.get("context_messages", 0),
         )
 
         events = [EventSchema(**e) for e in defn["events"]]

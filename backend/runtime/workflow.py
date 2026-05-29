@@ -9,10 +9,12 @@ workflow.  It interprets the compiled graph definition at runtime:
   2. Runs a polling loop — every ``poll_interval`` seconds it calls the
      ``poll_trigger_activity`` activity which talks to Gmail and returns
      any new matching emails.
-  3. For each incoming event it calls ``run_node_activity`` for each
-     downstream node in topological order, routing the event payload
-     through the edge event/filter conditions.
-  4. Continues until the workflow is cancelled (paused/deleted).
+  3. For each incoming event it calls ``create_session_activity`` to open a
+     WorkflowSession, then routes the event through ``run_node_activity`` for
+     each downstream node in topological order.
+  4. Every agent-to-agent hop is wrapped in NodeWrapper which persists a
+     StandardMessage to agent_messages before calling the agent.
+  5. Continues until the workflow is cancelled (paused/deleted).
 
 Activities are plain async functions decorated with ``@activity.defn``.
 They receive serialisable dicts so Temporal can serialize them.
@@ -51,12 +53,23 @@ class PollOutput:
 
 
 @dataclass
+class CreateSessionInput:
+    workflow_id: str
+    trigger_event: str
+    correlation_id: str   # e.g. Gmail message_id — used for idempotency
+
+
+@dataclass
 class RunNodeInput:
     agent_type: str
     agent_config: dict
-    tool_config: dict   # credential blob (may be empty for non-gmail agents)
+    tool_config: dict          # credential blob (may be empty for non-gmail agents)
     event_name: str
     payload: dict
+    session_id: str = ""       # WorkflowSession ID for this run
+    workflow_id: str = ""      # platform workflow DB id
+    from_agent_id: str = ""    # sender agent DB id
+    to_agent_id: str = ""      # receiver agent DB id
 
 
 @dataclass
@@ -77,46 +90,98 @@ class GraphWorkflowInput:
 
 @activity.defn
 async def poll_trigger_activity(inp: PollInput) -> PollOutput:
-    """Poll a long-running trigger agent (e.g. GmailWatcher) for new events.
+    """Poll a long-running trigger agent for new events.
 
-    seen_ids are loaded from agent_state at the start of each poll and saved
-    back after, so they survive worker restarts.
+    Cursor state is stored in agent_state keyed by the agent's declared
+    ``poll_cursor_key`` (default "last_internal_date") so the activity is
+    agent-agnostic.  The cursor value is the max of the payload field named
+    by ``poll_cursor_payload_field`` across the returned events.
+
+    GmailWatcher  → cursor_key="last_internal_date", payload_field="internal_date"
+    TelegramWatcher → cursor_key="last_update_id",    payload_field="update_id"
     """
     from agents import instantiate_agent
     from services.agent_state_service import get_state, set_state
 
     agent = instantiate_agent(inp.agent_type, inp.agent_config)
 
-    # Load persisted seen_ids from DB (empty list on first run)
-    seen_list: list[str] = await get_state(
-        inp.agent_id, inp.workflow_id, "seen_ids", default=[]
+    # Agents can declare their cursor key; default to gmail-style
+    cursor_key: str = getattr(agent, "poll_cursor_key", "last_internal_date")
+    cursor_payload_field: str = getattr(agent, "poll_cursor_payload_field", "internal_date")
+
+    cursor: int = await get_state(
+        inp.agent_id, inp.workflow_id, cursor_key, default=0
     )
-    seen = set(seen_list)
 
     if hasattr(agent, "poll"):
-        events = await agent.poll(inp.tool_config.get("credential", {}), seen)
+        events = await agent.poll(
+            inp.tool_config.get("credential", {}),
+            cursor,
+        )
     else:
         events = []
 
-    # Persist updated seen_ids back to DB
-    await set_state(inp.agent_id, inp.workflow_id, "seen_ids", list(seen))
+    if events:
+        new_cursor = max(
+            e.get("payload", {}).get(cursor_payload_field, 0) for e in events
+        )
+        if new_cursor > cursor:
+            await set_state(inp.agent_id, inp.workflow_id, cursor_key, new_cursor)
 
     return PollOutput(events=events)
 
 
 @activity.defn
-async def run_node_activity(inp: RunNodeInput) -> RunNodeOutput:
-    """Execute a single-shot agent node and return its output event."""
-    from agents import instantiate_agent
+async def create_session_activity(inp: CreateSessionInput) -> str:
+    """Create (or return existing) WorkflowSession for one trigger event run.
 
-    # Inject credential into config so agents can access it
+    Called once per trigger event before any node activities run, so all
+    downstream agent messages share the same session_id.
+    """
+    from services.message_service import get_or_create_session
+
+    return await get_or_create_session(
+        workflow_id=inp.workflow_id,
+        trigger_event=inp.trigger_event,
+        correlation_id=inp.correlation_id,
+    )
+
+
+@activity.defn
+async def run_node_activity(inp: RunNodeInput) -> RunNodeOutput:
+    """Execute a single-shot agent node via NodeWrapper and return its output.
+
+    NodeWrapper persists a StandardMessage to agent_messages before calling
+    agent.run(), and updates the message status after.
+    """
+    from agents import instantiate_agent
+    from agents.node_wrapper import NodeWrapper
+    from agents.standard_message import StandardMessage, Sender, Recipient
+
+    # Build agent config with injected credentials
     config = dict(inp.agent_config)
     if inp.tool_config:
         config["_credential"] = inp.tool_config.get("credential", {})
         config["_gmail_address"] = inp.tool_config.get("gmail_address", "")
+    # Inject session_id so strategies can fetch conversation history
+    if inp.session_id:
+        config["_session_id"] = inp.session_id
+    # Inject agent_id so strategies can persist assistant messages
+    if inp.to_agent_id:
+        config["_agent_id"] = inp.to_agent_id
 
     agent = instantiate_agent(inp.agent_type, config)
-    result = await agent.run(inp.event_name, inp.payload)
+
+    message = StandardMessage(
+        session_id=inp.session_id,
+        workflow_id=inp.workflow_id,
+        sender=Sender(type="agent", ref_id=inp.from_agent_id),
+        recipient=Recipient(type="agent", ref_id=inp.to_agent_id),
+        event_name=inp.event_name,
+        payload=inp.payload,
+    )
+
+    result = await NodeWrapper(agent).run(message)
 
     return RunNodeOutput(
         event_name=result.get("event", ""),
@@ -135,14 +200,11 @@ class GraphWorkflow:
         nodes: list[dict] = inp.graph_definition.get("nodes", [])
         edges: list[dict] = inp.graph_definition.get("edges", [])
 
-        # Build lookup maps
         node_by_id = {n["id"]: n for n in nodes}
-        # edges_from[node_id] → list of edges leaving that node
         edges_from: dict[str, list[dict]] = {}
         for e in edges:
             edges_from.setdefault(e["source"], []).append(e)
 
-        # Find the trigger node (long-running)
         trigger_node = next(
             (n for n in nodes if n.get("data", {}).get("isLongRunning")),
             nodes[0] if nodes else None,
@@ -162,7 +224,6 @@ class GraphWorkflow:
         )
 
         while True:
-            # Poll the trigger (seen_ids are persisted in agent_state DB table)
             poll_out: PollOutput = await workflow.execute_activity(
                 poll_trigger_activity,
                 PollInput(
@@ -176,18 +237,32 @@ class GraphWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-            # Process each incoming event through the graph
             for event in poll_out.events:
+                # One session per trigger event — correlation_id = Gmail message_id
+                correlation_id = event.get("payload", {}).get("message_id", "")
+                session_id: str = await workflow.execute_activity(
+                    create_session_activity,
+                    CreateSessionInput(
+                        workflow_id=inp.workflow_id,
+                        trigger_event=event["event"],
+                        correlation_id=correlation_id,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
                 await self._route_event(
                     event_name=event["event"],
                     payload=event["payload"],
                     source_node_id=trigger_node["id"],
+                    source_agent_id=trigger_agent_db_id,
                     node_by_id=node_by_id,
                     edges_from=edges_from,
                     agent_db_configs=inp.agent_db_configs,
+                    workflow_id=inp.workflow_id,
+                    session_id=session_id,
                 )
 
-            # Wait before next poll (use workflow.sleep so Temporal can persist state)
             await workflow.sleep(timedelta(seconds=inp.poll_interval))
 
     async def _route_event(
@@ -195,9 +270,12 @@ class GraphWorkflow:
         event_name: str,
         payload: dict,
         source_node_id: str,
+        source_agent_id: str,
         node_by_id: dict,
         edges_from: dict,
         agent_db_configs: dict,
+        workflow_id: str,
+        session_id: str,
     ) -> None:
         """Fan out an event to all matching downstream nodes."""
         outgoing = edges_from.get(source_node_id, [])
@@ -206,11 +284,9 @@ class GraphWorkflow:
             edge_data = edge.get("data", {}) or {}
             required_event = edge_data.get("event", "")
 
-            # Event filter
             if required_event and required_event != event_name:
                 continue
 
-            # Expression filter (optional)
             expr = (edge_data.get("filter") or "").strip()
             if expr:
                 try:
@@ -220,7 +296,6 @@ class GraphWorkflow:
                     workflow.logger.warning("Filter eval error: %s", exc)
                     continue
 
-            # Run the target node
             target_id = edge["target"]
             target_node = node_by_id.get(target_id)
             if not target_node:
@@ -232,8 +307,8 @@ class GraphWorkflow:
             target_cfg = agent_db_configs.get(target_agent_db_id, {})
 
             workflow.logger.info(
-                "Dispatching %s → node %s (%s)",
-                event_name, target_id, target_agent_type,
+                "Dispatching %s → node %s (%s)  session=%s",
+                event_name, target_id, target_agent_type, session_id[:8],
             )
 
             node_out: RunNodeOutput = await workflow.execute_activity(
@@ -244,18 +319,24 @@ class GraphWorkflow:
                     tool_config=target_cfg.get("tool_config", {}),
                     event_name=event_name,
                     payload=payload,
+                    session_id=session_id,
+                    workflow_id=workflow_id,
+                    from_agent_id=source_agent_id,
+                    to_agent_id=target_agent_db_id,
                 ),
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
-            # Recurse for the next layer
             if node_out.event_name:
                 await self._route_event(
                     event_name=node_out.event_name,
                     payload=node_out.payload,
                     source_node_id=target_id,
+                    source_agent_id=target_agent_db_id,
                     node_by_id=node_by_id,
                     edges_from=edges_from,
                     agent_db_configs=agent_db_configs,
+                    workflow_id=workflow_id,
+                    session_id=session_id,
                 )

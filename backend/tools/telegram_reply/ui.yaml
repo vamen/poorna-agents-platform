@@ -1,0 +1,15 @@
+# Telegram Reply — UI rendering hints
+
+order:
+  - credential.bot_token
+
+fields:
+
+  - path: credential.bot_token
+    label: Bot Token
+    widget: password
+    placeholder: "123456789:ABCdefGhIJKlmNoPQRsTUVwxyz"
+    sensitive: true
+    help: >
+      Your Telegram bot token. Use the same token as the Telegram Watcher
+      if the same bot should watch and respond.

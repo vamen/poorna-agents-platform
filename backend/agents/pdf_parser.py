@@ -145,13 +145,7 @@ class PdfParserAgent(BaseAgent):
 
     async def _extract_profile(self, raw_text: str) -> dict:
         """Use Claude to extract a structured candidate profile from resume text."""
-        from openai import OpenAI
-        from config import settings
-
-        client = OpenAI(
-            api_key=settings.anthropic_api_key,
-            base_url="https://api.anthropic.com/v1",
-        )
+        client = self._get_llm_client()
 
         prompt = f"""You are a resume parser. Extract a structured profile from the following resume text.
 

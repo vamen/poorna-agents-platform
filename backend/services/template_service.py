@@ -24,14 +24,17 @@ def load_templates() -> None:
         with open(yaml_file) as f:
             data = yaml.safe_load(f)
 
+        agent_name = data["name"]
         events = [
+            # Keep short names here; agent_cls.event_names() adds the agent_type prefix:
+            # "message.received" → event_names() → "telegram_watcher.message.received"
             TemplateEvent(name=e["name"], payload=e.get("payload", {}))
             for e in data.get("events", [])
         ]
 
         reasoning = data.get("reasoning", {})
         template = TemplateResponse(
-            name=data["name"],
+            name=agent_name,
             display_name=data["display_name"],
             description=data.get("description", ""),
             is_long_running=data.get("is_long_running", False),
@@ -43,20 +46,29 @@ def load_templates() -> None:
 
 
 def register_custom_template(defn: "AgentDefinition") -> None:
-    """Register (or overwrite) a template entry from an AgentDefinition row."""
+    """Register (or overwrite) a template entry from an AgentDefinition row.
+
+    The synthetic ``llm_api_key`` tool is prepended to the tools list so that
+    AgentConfigPanel always renders an API-key credential form for every custom
+    agent instance, regardless of which other tools the definition declares.
+    """
     d = defn.definition
     events = [
         TemplateEvent(name=e["name"], payload=e.get("payload", {}))
         for e in d.get("events", [])
     ]
     reasoning = d.get("reasoning", {})
+    declared_tools: list[str] = reasoning.get("tools", [])
+    # Always surface llm_api_key first so per-instance LLM credentials are
+    # configurable even when the definition declares no other tools.
+    tools_with_key = ["llm_api_key"] + [t for t in declared_tools if t != "llm_api_key"]
     template = TemplateResponse(
         name=defn.name,
         display_name=d.get("display_name", defn.name),
         description=d.get("description", ""),
         is_long_running=d.get("is_long_running", False),
         events=events,
-        tools=reasoning.get("tools", []),
+        tools=tools_with_key,
         mcp_servers=reasoning.get("mcp_servers", []),
     )
     _templates[defn.name] = template

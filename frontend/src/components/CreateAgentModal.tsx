@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { agentsApi, type Agent, type AgentTemplate } from '../api/agents'
 import { X } from 'lucide-react'
@@ -14,6 +15,7 @@ interface Props {
 
 export function CreateAgentModal({ preselectedType, workflowId, onCreated, onClose }: Props) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [name, setName] = useState('')
   const [selectedType, setSelectedType] = useState(preselectedType ?? '')
 
@@ -78,6 +80,16 @@ export function CreateAgentModal({ preselectedType, workflowId, onCreated, onClo
                   <option key={t.name} value={t.name}>{t.display_name}</option>
                 ))}
               </select>
+              <p className="text-xs text-gray-500 mt-1.5">
+                Don't see your type?{' '}
+                <button
+                  type="button"
+                  className="text-blue-600 hover:underline"
+                  onClick={() => { onClose(); navigate('/workspace/agent-definitions/new') }}
+                >
+                  Define a custom agent type →
+                </button>
+              </p>
             </div>
           )}
 

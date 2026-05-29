@@ -24,6 +24,7 @@ from config import settings
 from runtime.workflow import (
     GraphWorkflow,
     poll_trigger_activity,
+    create_session_activity,
     run_node_activity,
 )
 
@@ -34,9 +35,12 @@ TASK_QUEUE = "workflow-graph-queue"
 
 async def main() -> None:
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
     )
+    # Suppress noisy debug logs from third-party libs
+    for noisy in ("httpx", "httpcore", "urllib3", "asyncio", "temporalio"):
+        logging.getLogger(noisy).setLevel(logging.INFO)
     logger.info("Connecting to Temporal at %s", settings.temporal_host)
 
     client = await Client.connect(settings.temporal_host)
@@ -45,7 +49,7 @@ async def main() -> None:
         client,
         task_queue=TASK_QUEUE,
         workflows=[GraphWorkflow],
-        activities=[poll_trigger_activity, run_node_activity],
+        activities=[poll_trigger_activity, create_session_activity, run_node_activity],
     ):
         logger.info("Worker started on queue '%s' — waiting for tasks…", TASK_QUEUE)
         await asyncio.Future()  # run forever

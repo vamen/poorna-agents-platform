@@ -171,20 +171,53 @@ async def _build_agent_db_configs(db: AsyncSession, graph_def: dict) -> dict:
     )
     agents = result.scalars().all()
 
+    # Load AgentDefinition blobs for generic agents keyed by agent type name
+    from db.models import AgentDefinition as AgentDefinitionModel
+
+    agent_type_names = [a.type for a in agents]
+    defn_result = await db.execute(
+        select(AgentDefinitionModel).where(AgentDefinitionModel.name.in_(agent_type_names))
+    )
+    defns_by_name = {d.name: d.definition for d in defn_result.scalars().all()}
+
     agent_db_configs: dict = {}
     for agent in agents:
-        # Pick the first tool config (usually "gmail") if any
+        # Primary tool config (gmail, etc.) — kept for backward-compat
         tool_config: dict = {}
+        # Full per-tool credential map for ReactExecutor
+        all_tool_configs: dict[str, dict] = {}
+
         if agent.tool_configs:
-            # Prefer a tool named "gmail"; otherwise take the first one
-            gmail_cfg = next(
-                (tc.config for tc in agent.tool_configs if tc.name == "gmail"),
-                agent.tool_configs[0].config if agent.tool_configs else {},
+            for tc in agent.tool_configs:
+                all_tool_configs[tc.name] = tc.config or {}
+            # Prefer a tool config whose name matches the agent type (e.g. telegram_watcher,
+            # gmail), then fall back to the legacy "gmail" entry, then the first config.
+            poll_cfg = next(
+                (tc.config for tc in agent.tool_configs if tc.name == agent.type),
+                next(
+                    (tc.config for tc in agent.tool_configs if tc.name == "gmail"),
+                    agent.tool_configs[0].config if agent.tool_configs else {},
+                ),
             )
-            tool_config = gmail_cfg or {}
+            tool_config = poll_cfg or {}
+
+        base_config = dict(agent.config or {})
+        # Inject definition blob for generic agents so executor can read it
+        if agent.type in defns_by_name:
+            base_config["_definition"] = defns_by_name[agent.type]
+        # Inject full tool config map for ReactExecutor
+        if all_tool_configs:
+            base_config["_tool_configs"] = all_tool_configs
+
+        # Pass the user's raw API key directly to the executor — no LiteLLM proxy
+        # needed.  The executor routes to the correct provider base URL itself,
+        # and users can track spend on their own provider dashboard.
+        client_api_key: str = all_tool_configs.get("llm_api_key", {}).get("api_key") or ""
+        if client_api_key:
+            base_config["_api_key"] = client_api_key
 
         agent_db_configs[agent.id] = {
-            "config": agent.config or {},
+            "config": base_config,
             "tool_config": tool_config,
         }
 

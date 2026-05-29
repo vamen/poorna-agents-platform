@@ -11,7 +11,16 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { toolsApi, type ToolUiField, type ToolUiHints, type ToolConfigResponse } from '../api/toolConfigs'
-import { ExternalLink, CheckCircle, Loader2, Key } from 'lucide-react'
+import { ExternalLink, CheckCircle, Loader2, Key, Pencil } from 'lucide-react'
+
+// ── Secret masking ────────────────────────────────────────────────────────────
+
+/** Show first 4 + dots + last 4 of a secret. Short secrets are fully masked. */
+function maskSecret(val: string): string {
+  if (!val) return ''
+  if (val.length <= 8) return '••••••••'
+  return val.slice(0, 4) + '••••••••' + val.slice(-4)
+}
 
 /** Seed any select widget to its first option so conditional fields are
  *  immediately visible (e.g. the oauth2_button for gmail). */
@@ -165,30 +174,67 @@ function OAuth2ButtonWidget({
   field,
   agentId,
   toolName,
+  oauthProvider,
   existingConfig,
   onBeforeOAuth,
 }: {
   field: ToolUiField
   agentId: string
   toolName: string
+  oauthProvider?: string
   existingConfig: ToolConfigResponse | undefined
   onBeforeOAuth?: () => Promise<void>
 }) {
   const [loading, setLoading] = useState(false)
   const [preError, setPreError] = useState<string | null>(null)
 
-  // Check if already connected (config exists with a refresh_token)
+  // Check if already connected (oauth2 needs refresh_token; oauth1 needs access_token)
   const credential = existingConfig?.config?.credential as Record<string, unknown> | undefined
-  const isConnected = credential?.credential_type === 'oauth2' && !!credential?.refresh_token
+  const isConnected =
+    (credential?.credential_type === 'oauth2' && !!credential?.refresh_token) ||
+    (credential?.credential_type === 'oauth1' && !!credential?.access_token)
 
   const handleConnect = async () => {
     setLoading(true)
     setPreError(null)
     try {
-      // Ensure the agent row exists before redirecting to OAuth
+      // Ensure the agent row exists before opening OAuth popup
       if (onBeforeOAuth) await onBeforeOAuth()
-      const { auth_url } = await toolsApi.getOAuthUrl(agentId, toolName)
-      window.location.href = auth_url
+      const { auth_url } = await toolsApi.getOAuthUrl(agentId, toolName, oauthProvider)
+
+      // Open in a popup so the app tab stays intact
+      const popup = window.open(
+        auth_url,
+        'oauth_popup',
+        'width=600,height=720,scrollbars=yes,resizable=yes'
+      )
+      if (!popup) {
+        // Popup blocked — fall back to full redirect
+        window.location.href = auth_url
+        return
+      }
+
+      // Poll until the popup closes or redirects back to localhost
+      const poll = setInterval(() => {
+        try {
+          if (!popup || popup.closed) {
+            clearInterval(poll)
+            setLoading(false)
+            onSaved?.()   // re-fetch tool configs
+            return
+          }
+          const href = popup.location.href
+          // Once redirected back to our frontend (localhost / same origin)
+          if (href && href.includes(window.location.hostname)) {
+            clearInterval(poll)
+            popup.close()
+            setLoading(false)
+            onSaved?.()
+          }
+        } catch {
+          // Cross-origin (still on Twitter/Google) — keep polling
+        }
+      }, 500)
     } catch (err) {
       setPreError(err instanceof Error ? err.message : 'Failed to connect')
       setLoading(false)
@@ -261,12 +307,34 @@ export function ToolConfigForm({ agentId, toolName, existingConfig, onBeforeOAut
   )
   const [seeded, setSeeded] = useState(!!existingConfig)
 
+  // Password fields with saved values start "locked" — shown as masked text
+  const [lockedPaths, setLockedPaths] = useState<Set<string>>(new Set())
+  const [locksInitialized, setLocksInitialized] = useState(false)
+
   useEffect(() => {
     if (!ui || seeded) return
     // No existing config — build defaults from UI field definitions
     setValues(buildInitialValues(ui))
     setSeeded(true)
   }, [ui, seeded])
+
+  // Once the UI schema loads, lock all password fields that already have a value
+  useEffect(() => {
+    if (!ui || locksInitialized) return
+    if (!existingConfig?.config) {
+      setLocksInitialized(true)
+      return
+    }
+    const locked = new Set<string>()
+    for (const field of ui.fields ?? []) {
+      if (field.widget === 'password') {
+        const v = getNestedValue(existingConfig.config as Record<string, unknown>, field.path)
+        if (v && String(v).length > 0) locked.add(field.path)
+      }
+    }
+    setLockedPaths(locked)
+    setLocksInitialized(true)
+  }, [ui, locksInitialized, existingConfig])
 
   const upsertMutation = useMutation({
     mutationFn: () =>
@@ -307,6 +375,7 @@ export function ToolConfigForm({ agentId, toolName, existingConfig, onBeforeOAut
                 field={field}
                 agentId={agentId}
                 toolName={toolName}
+                oauthProvider={meta?.oauth_provider}
                 existingConfig={existingConfig}
                 onBeforeOAuth={onBeforeOAuth}
               />
@@ -342,12 +411,33 @@ export function ToolConfigForm({ agentId, toolName, existingConfig, onBeforeOAut
                 onChange={v => handleChange(field.path, v)}
               />
             ) : field.widget === 'password' ? (
-              <TextWidget
-                field={field}
-                value={String(rawValue ?? '')}
-                onChange={v => handleChange(field.path, v)}
-                type="password"
-              />
+              lockedPaths.has(field.path) ? (
+                /* Saved value — show masked with a Change button */
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 font-mono text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-1.5 tracking-widest overflow-hidden">
+                    {maskSecret(String(rawValue ?? ''))}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLockedPaths(prev => {
+                      const next = new Set(prev)
+                      next.delete(field.path)
+                      return next
+                    })}
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:underline whitespace-nowrap"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <TextWidget
+                  field={field}
+                  value={String(rawValue ?? '')}
+                  onChange={v => handleChange(field.path, v)}
+                  type="password"
+                />
+              )
             ) : (
               <TextWidget
                 field={field}

@@ -1,0 +1,16 @@
+# Telegram Watcher — UI rendering hints
+# Consumed by: frontend form renderer only.
+
+order:
+  - credential.bot_token
+
+fields:
+
+  - path: credential.bot_token
+    label: Bot Token
+    widget: password
+    placeholder: "123456789:ABCdefGhIJKlmNoPQRsTUVwxyz"
+    sensitive: true
+    help: >
+      Your Telegram bot token from @BotFather.
+      To get one: open Telegram → search @BotFather → /newbot → copy the token.

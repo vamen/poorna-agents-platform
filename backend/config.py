@@ -27,11 +27,24 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
+    # ── Twitter OAuth 2.0 (platform-owned developer app) ─────────────────────
+    twitter_client_id: str = ""
+    twitter_client_secret: str = ""
+
     # ── Anthropic ─────────────────────────────────────────────────────────────
     anthropic_api_key: str = ""
 
     # ── Temporal ─────────────────────────────────────────────────────────────
     temporal_host: str = "localhost:7233"
+
+    # ── LiteLLM proxy ────────────────────────────────────────────────────────
+    litellm_base_url: str = "http://localhost:4000"
+    litellm_master_key: str = "sk-platform-master-2026"
+
+    # ── File storage ─────────────────────────────────────────────────────────
+    file_backend: str = "local"              # "local" | "s3"
+    file_local_dir: str = "/tmp/agent_files"
+    file_s3_bucket: str = ""
 
 
 settings = Settings()

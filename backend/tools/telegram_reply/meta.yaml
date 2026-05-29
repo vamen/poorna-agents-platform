@@ -1,0 +1,9 @@
+# Telegram Reply — metadata
+
+name: send_telegram
+display_name: Telegram Reply
+description: Send messages to a Telegram chat via a bot. Used by agents to reply to users.
+kind: tool
+phase: 1
+icon: telegram
+auth_type: api_key

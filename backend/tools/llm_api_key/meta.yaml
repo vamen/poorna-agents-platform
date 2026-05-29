@@ -1,0 +1,9 @@
+# LLM API Key — metadata
+
+name: llm_api_key
+display_name: LLM API Key
+description: API key for the LLM provider (OpenAI, Anthropic, etc.) used by this agent. Leave empty to use the platform default.
+kind: tool
+phase: 1
+icon: key
+auth_type: api_key

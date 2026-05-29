@@ -1,0 +1,15 @@
+# LLM API Key — UI rendering hints
+
+order:
+  - api_key
+
+fields:
+  - path: api_key
+    label: API Key
+    widget: password
+    placeholder: "sk-..."
+    sensitive: true
+    help: >
+      API key for the LLM provider configured in this agent's definition.
+      When set, a dedicated LiteLLM virtual key is created using your key
+      so usage is billed to your account. Leave empty to use the platform default.

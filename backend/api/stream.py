@@ -1,11 +1,10 @@
 import asyncio
 import json
-from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from api.deps import get_current_user
 from db.base import AsyncSessionLocal
@@ -29,10 +28,18 @@ async def event_generator(session_id: str):
                 yield f"event: error\ndata: {json.dumps({'error': 'Session not found'})}\n\n"
                 return
 
-            # Stream new messages
-            query = select(AgentMessage).where(AgentMessage.session_id == session_id)
+            # Stream new messages — join sender/recipient for display names
+            query = (
+                select(AgentMessage)
+                .options(joinedload(AgentMessage.sender), joinedload(AgentMessage.recipient))
+                .where(AgentMessage.session_id == session_id)
+            )
             if last_message_id:
-                subq = select(AgentMessage.created_at).where(AgentMessage.id == last_message_id).scalar_subquery()
+                subq = (
+                    select(AgentMessage.created_at)
+                    .where(AgentMessage.id == last_message_id)
+                    .scalar_subquery()
+                )
                 query = query.where(AgentMessage.created_at > subq)
             query = query.order_by(AgentMessage.created_at)
 
@@ -40,11 +47,20 @@ async def event_generator(session_id: str):
             messages = msg_result.scalars().all()
 
             for msg in messages:
+                sender = msg.sender
+                recipient = msg.recipient
                 data = {
-                    "from_agent_id": msg.from_agent_id,
-                    "to_agent_id": msg.to_agent_id,
+                    "id": msg.id,
+                    "session_id": msg.session_id,
+                    "sender_type": sender.type if sender else "unknown",
+                    "sender_ref_id": sender.ref_id if sender else "",
+                    "sender_name": sender.display_name if sender else "",
+                    "recipient_type": recipient.type if recipient else "unknown",
+                    "recipient_ref_id": recipient.ref_id if recipient else "",
+                    "recipient_name": recipient.display_name if recipient else "",
                     "event_name": msg.event_name,
                     "payload": msg.payload,
+                    "status": msg.status,
                     "created_at": msg.created_at.isoformat() if msg.created_at else None,
                 }
                 yield f"event: agent_message\ndata: {json.dumps(data)}\n\n"

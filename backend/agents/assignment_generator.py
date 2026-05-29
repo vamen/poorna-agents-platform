@@ -91,13 +91,7 @@ class AssignmentGeneratorAgent(BaseAgent):
         years_exp: int,
         company_name: str,
     ) -> str:
-        from openai import OpenAI
-        from config import settings
-
-        client = OpenAI(
-            api_key=settings.anthropic_api_key,
-            base_url="https://api.anthropic.com/v1",
-        )
+        client = self._get_llm_client()
 
         skills_str = ", ".join(skills[:12]) if skills else "general software engineering"
 

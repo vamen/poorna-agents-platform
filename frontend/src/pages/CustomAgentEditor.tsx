@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -13,8 +13,8 @@ import {
 } from '../api/agentDefinitions'
 import { toolsApi, type ToolMeta } from '../api/toolConfigs'
 import {
-  ArrowLeft, Plus, Trash2, Eye, EyeOff,
-  ChevronDown, ChevronRight, Info, Server,
+  ArrowLeft, Plus, Trash2,
+  ChevronDown, ChevronRight, Info, Server, Copy, Check,
 } from 'lucide-react'
 
 // ─── constants ───────────────────────────────────────────────────────────────
@@ -42,6 +42,58 @@ const STANDARD_INPUT_VARS = [
   { name: 'from_agent_id', desc: 'Upstream agent UUID' },
   { name: 'timestamp',     desc: 'ISO-8601 UTC datetime' },
 ]
+
+// ─── JSON preview ─────────────────────────────────────────────────────────────
+
+/** Syntax-highlight a JSON string with Tailwind colour classes. */
+function highlightJson(json: string): React.ReactNode {
+  const tokens = json.split(/("(?:[^"\\]|\\.)*"(?:\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],])/g)
+  return tokens.map((tok, i) => {
+    if (!tok) return null
+    // key (string followed by colon)
+    if (/^".*":$/.test(tok)) return <span key={i} className="text-sky-400">{tok}</span>
+    // string value
+    if (/^"/.test(tok)) return <span key={i} className="text-emerald-400">{tok}</span>
+    // boolean / null
+    if (tok === 'true' || tok === 'false') return <span key={i} className="text-amber-400">{tok}</span>
+    if (tok === 'null') return <span key={i} className="text-red-400">{tok}</span>
+    // number
+    if (/^-?\d/.test(tok)) return <span key={i} className="text-violet-400">{tok}</span>
+    // braces / brackets / comma
+    if (/^[{}[\],]$/.test(tok)) return <span key={i} className="text-gray-500">{tok}</span>
+    // whitespace / other
+    return <span key={i}>{tok}</span>
+  })
+}
+
+function JsonPreview({ payload }: { payload: AgentDefinitionCreate }) {
+  const [copied, setCopied] = useState(false)
+  const json = JSON.stringify(payload, null, 2)
+
+  const copy = () => {
+    navigator.clipboard.writeText(json)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  return (
+    <div className="flex flex-col h-full bg-gray-950 rounded-xl border border-gray-800 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-800">
+        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Live JSON</span>
+        <button
+          onClick={copy}
+          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        >
+          {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
+      <pre className="flex-1 overflow-auto px-4 py-3 text-[11.5px] font-mono leading-relaxed text-gray-300">
+        {highlightJson(json)}
+      </pre>
+    </div>
+  )
+}
 
 // ─── sub-components ──────────────────────────────────────────────────────────
 
@@ -84,7 +136,6 @@ const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm foc
 
 interface ModelRowState extends ModelEntry {
   _id: string
-  showKey: boolean
 }
 
 function ModelsEditor({ models, onChange }: {
@@ -93,7 +144,7 @@ function ModelsEditor({ models, onChange }: {
 }) {
   const add = () => onChange([...models, {
     _id: crypto.randomUUID(), provider: 'openai',
-    name: MODEL_OPTIONS.openai[0], api_key: '', showKey: false,
+    name: MODEL_OPTIONS.openai[0],
   }])
 
   const remove = (id: string) => onChange(models.filter(m => m._id !== id))
@@ -133,21 +184,6 @@ function ModelsEditor({ models, onChange }: {
                   className="p-1 text-gray-400 hover:text-red-500">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>}
-            </div>
-            {/* api key */}
-            <div className="flex items-center gap-2 ml-6">
-              <div className="relative flex-1">
-                <input type={m.showKey ? 'text' : 'password'}
-                  value={m.api_key || ''}
-                  onChange={e => update(m._id, { api_key: e.target.value })}
-                  placeholder={idx === 0 ? 'API key (required)' : 'API key (optional)'}
-                  className="w-full border border-gray-200 rounded px-2 py-1 text-xs pr-7 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  autoComplete="new-password" />
-                <button type="button" onClick={() => update(m._id, { showKey: !m.showKey })}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400">
-                  {m.showKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                </button>
-              </div>
             </div>
           </div>
         )
@@ -268,6 +304,7 @@ interface FormState {
   user_prompt: string
   tools: string[]
   mcp_servers: string[]
+  context_messages: number
 }
 
 const DEFAULT_FORM: FormState = {
@@ -277,15 +314,14 @@ const DEFAULT_FORM: FormState = {
   user_prompt: 'Event: {{ event_name }}\n\nPayload:\n{{ payload }}',
   tools: [],
   mcp_servers: [],
+  context_messages: 0,
 }
 
-function toModelRows(model: { provider: string; name: string; has_api_key?: boolean; api_key?: string }[]): ModelRowState[] {
+function toModelRows(model: { provider: string; name: string }[]): ModelRowState[] {
   return model.map(m => ({
     _id: crypto.randomUUID(),
     provider: m.provider as Provider,
     name: m.name,
-    api_key: '',  // never pre-fill key on edit
-    showKey: false,
   }))
 }
 
@@ -304,7 +340,6 @@ function buildPayload(form: FormState, modelRows: ModelRowState[], eventRows: Ev
   const models: ModelEntry[] = modelRows.map(m => ({
     provider: m.provider,
     name: m.name,
-    ...(m.api_key ? { api_key: m.api_key } : {}),
   }))
 
   const events: EventSchema[] = eventRows.map(ev => ({
@@ -329,6 +364,7 @@ function buildPayload(form: FormState, modelRows: ModelRowState[], eventRows: Ev
       prompt: { system: form.system_prompt, user: form.user_prompt },
       tools: form.tools,
       mcp_servers: form.mcp_servers,
+      context_messages: form.context_messages,
     },
     events,
   }
@@ -362,7 +398,7 @@ export function CustomAgentEditor() {
   const [form, setForm] = useState<FormState>(DEFAULT_FORM)
   const [modelRows, setModelRows] = useState<ModelRowState[]>([{
     _id: crypto.randomUUID(), provider: 'openai',
-    name: MODEL_OPTIONS.openai[0], api_key: '', showKey: false,
+    name: MODEL_OPTIONS.openai[0],
   }])
   const [eventRows, setEventRows] = useState<EventRowState[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -381,6 +417,7 @@ export function CustomAgentEditor() {
       user_prompt: r.prompt.user,
       tools: r.tools,
       mcp_servers: r.mcp_servers ?? [],
+      context_messages: r.context_messages ?? 0,
     })
     setModelRows(toModelRows(r.model))
     setEventRows(toEventRows(existing.events))
@@ -447,13 +484,21 @@ export function CustomAgentEditor() {
     }
   }
 
+  const livePayload = useMemo(
+    () => buildPayload(form, modelRows, eventRows),
+    [form, modelRows, eventRows],
+  )
+
   if (isEdit && isLoading) {
     return <div className="flex-1 flex items-center justify-center text-gray-400">Loading…</div>
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-gray-50">
-      <div className="max-w-3xl mx-auto px-6 py-8 space-y-4">
+    <div className="flex flex-1 min-h-0 bg-gray-50">
+
+      {/* ── left: form ───────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto">
+      <div className="max-w-2xl mx-auto px-6 py-8 space-y-4">
 
         {/* header */}
         <div className="flex items-center gap-3 mb-2">
@@ -570,12 +615,31 @@ export function CustomAgentEditor() {
             </Field>
           </div>
 
+          {/* Conversation history */}
+          <div className="border-t border-gray-100 pt-4">
+            <Field label="Conversation history"
+              hint="Number of prior session messages to include as context on each run (0 = disabled).">
+              <div className="flex items-center gap-3">
+                <input type="number" min={0} max={100} value={form.context_messages}
+                  onChange={e => setF('context_messages', Math.max(0, Number(e.target.value)))}
+                  className={`${inputCls} w-24`} />
+                <span className="text-xs text-gray-400">messages</span>
+              </div>
+            </Field>
+          </div>
+
           {/* Tools */}
           <div className="border-t border-gray-100 pt-4">
-            <p className="text-sm font-medium text-gray-700 mb-2">
+            <p className="text-sm font-medium text-gray-700 mb-1">
               Tools
               <span className="text-xs text-gray-400 font-normal ml-1">— only meaningful for ReAct</span>
             </p>
+            {form.tools.length > 0 && (
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+                🔑 Tool credentials (API keys, OAuth tokens) are configured per agent instance —
+                open the agent on the workflow canvas after creation to connect each tool.
+              </p>
+            )}
             <div className="space-y-2">
               {toolDefs.map(tool => {
                 const selected = form.tools.includes(tool.name)
@@ -666,6 +730,13 @@ export function CustomAgentEditor() {
           </button>
         </div>
       </div>
+      </div>
+
+      {/* ── right: live JSON preview ──────────────────────────────── */}
+      <div className="w-[420px] flex-shrink-0 border-l border-gray-200 p-4 overflow-hidden flex flex-col">
+        <JsonPreview payload={livePayload} />
+      </div>
+
     </div>
   )
 }

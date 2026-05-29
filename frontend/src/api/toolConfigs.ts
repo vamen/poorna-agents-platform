@@ -77,9 +77,15 @@ export const toolsApi = {
   deleteConfig: (agentId: string, name: string) =>
     apiClient.delete(`/api/agents/${agentId}/tool-configs/${name}`),
 
-  /** Get the Google OAuth authorize URL for an agent tool. */
-  getOAuthUrl: (agentId: string, toolName: string) =>
-    apiClient.get<{ auth_url: string }>(`/api/oauth/google/authorize`, {
+  /**
+   * Get the OAuth authorize URL for an agent tool.
+   * Uses the explicit oauthProvider when supplied (from meta.oauth_provider),
+   * otherwise falls back to 'google'.
+   */
+  getOAuthUrl: (agentId: string, toolName: string, oauthProvider?: string) => {
+    const provider = oauthProvider ?? 'google'
+    return apiClient.get<{ auth_url: string }>(`/api/oauth/${provider}/authorize`, {
       params: { agent_id: agentId, tool_name: toolName },
-    }).then(r => r.data),
+    }).then(r => r.data)
+  },
 }

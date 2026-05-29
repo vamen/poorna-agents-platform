@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from api.deps import get_current_user
 from db.base import get_db
@@ -23,6 +24,7 @@ async def get_session(
 
     msg_result = await db.execute(
         select(AgentMessage)
+        .options(joinedload(AgentMessage.sender), joinedload(AgentMessage.recipient))
         .where(AgentMessage.session_id == session_id)
         .order_by(AgentMessage.created_at)
     )
@@ -48,6 +50,7 @@ async def list_messages(
 ):
     result = await db.execute(
         select(AgentMessage)
+        .options(joinedload(AgentMessage.sender), joinedload(AgentMessage.recipient))
         .where(AgentMessage.session_id == session_id)
         .order_by(AgentMessage.created_at)
     )

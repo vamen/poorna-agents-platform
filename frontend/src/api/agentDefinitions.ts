@@ -16,13 +16,11 @@ export interface EventSchema {
 export interface ModelEntry {
   provider: Provider
   name: string
-  api_key?: string
 }
 
 export interface ModelEntryResponse {
   provider: Provider
   name: string
-  has_api_key: boolean
 }
 
 export interface PromptSchema {
@@ -37,6 +35,7 @@ export interface ReasoningCreate {
   prompt: PromptSchema
   tools: string[]
   mcp_servers: string[]
+  context_messages: number
 }
 
 export interface ReasoningResponse {
@@ -46,6 +45,7 @@ export interface ReasoningResponse {
   prompt: PromptSchema
   tools: string[]
   mcp_servers: string[]
+  context_messages: number
 }
 
 export interface AgentDefinitionCreate {

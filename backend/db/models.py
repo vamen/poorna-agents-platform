@@ -6,6 +6,48 @@ from sqlalchemy.orm import relationship
 from db.base import Base
 
 
+class Sender(Base):
+    """Lazy-created identity table for message senders.
+
+    Supports both agent senders (type="agent", ref_id=agent DB id) and
+    external participants like Telegram users (type="telegram_user", ref_id=chat_id).
+    UNIQUE(type, ref_id) means the same entity always maps to the same row.
+    """
+
+    __tablename__ = "senders"
+    __table_args__ = (
+        UniqueConstraint("type", "ref_id", name="uq_sender_type_ref"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    type = Column(String, nullable=False)       # "agent" | "telegram_user" | …
+    ref_id = Column(String, nullable=False)     # agent DB id or external id
+    display_name = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    sent_messages = relationship("AgentMessage", back_populates="sender")
+
+
+class Recipient(Base):
+    """Lazy-created identity table for message recipients.
+
+    Same shape as Sender — kept separate so the FK semantics stay clear.
+    """
+
+    __tablename__ = "recipients"
+    __table_args__ = (
+        UniqueConstraint("type", "ref_id", name="uq_recipient_type_ref"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    type = Column(String, nullable=False)
+    ref_id = Column(String, nullable=False)
+    display_name = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    received_messages = relationship("AgentMessage", back_populates="recipient")
+
+
 class Agent(Base):
     __tablename__ = "agents"
 
@@ -17,13 +59,12 @@ class Agent(Base):
     type = Column(String, nullable=False)
     config = Column(JSON, nullable=False, default=dict)
     secret_ref = Column(String, nullable=True)
+    litellm_virtual_key = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     created_by = Column(String(36), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    sent_messages = relationship("AgentMessage", foreign_keys="AgentMessage.from_agent_id", back_populates="from_agent")
-    received_messages = relationship("AgentMessage", foreign_keys="AgentMessage.to_agent_id", back_populates="to_agent")
     tool_configs = relationship("AgentToolConfig", back_populates="agent", cascade="all, delete-orphan")
 
 
@@ -150,13 +191,13 @@ class AgentMessage(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     session_id = Column(String(36), ForeignKey("workflow_sessions.id"), nullable=False)
-    from_agent_id = Column(String(36), ForeignKey("agents.id"), nullable=False)
-    to_agent_id = Column(String(36), ForeignKey("agents.id"), nullable=False)
+    sender_id = Column(String(36), ForeignKey("senders.id"), nullable=False)
+    recipient_id = Column(String(36), ForeignKey("recipients.id"), nullable=False)
     event_name = Column(String, nullable=False)
     payload = Column(JSON, nullable=True)
     status = Column(String, default="delivered")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     session = relationship("WorkflowSession", back_populates="messages")
-    from_agent = relationship("Agent", foreign_keys=[from_agent_id], back_populates="sent_messages")
-    to_agent = relationship("Agent", foreign_keys=[to_agent_id], back_populates="received_messages")
+    sender = relationship("Sender", back_populates="sent_messages")
+    recipient = relationship("Recipient", back_populates="received_messages")

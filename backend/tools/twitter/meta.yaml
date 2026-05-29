@@ -1,0 +1,10 @@
+# Twitter/X — metadata
+
+name: post_to_twitter
+display_name: Twitter / X
+description: Post tweets to Twitter/X on behalf of an authenticated user account.
+kind: tool
+phase: 1
+icon: twitter
+auth_type: oauth2
+oauth_provider: twitter

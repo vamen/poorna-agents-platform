@@ -1,0 +1,22 @@
+# Telegram Reply — config/credential schema
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Telegram Reply Config
+description: Credentials for sending Telegram messages via a bot.
+
+type: object
+required: [credential]
+additionalProperties: false
+
+properties:
+
+  credential:
+    type: object
+    required: [bot_token]
+    additionalProperties: false
+    properties:
+      bot_token:
+        type: string
+        description: >
+          Bot token issued by @BotFather. Same token as the watcher
+          if you want the same bot to send and receive.

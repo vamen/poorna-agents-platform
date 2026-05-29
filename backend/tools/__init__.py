@@ -93,7 +93,14 @@ STANDARD_TOOLS: dict[str, ToolDefinition] = {
             "chat_id": ToolParameter(type="string", description="Telegram chat or channel ID", required=True),
             "text": ToolParameter(type="string", description="Message text (Markdown supported)", required=True),
         },
-        phase2_only=True,
+    ),
+    "post_to_twitter": ToolDefinition(
+        name="post_to_twitter",
+        description="Post a tweet to Twitter/X on behalf of the authenticated account.",
+        parameters={
+            "text": ToolParameter(type="string", description="Tweet text (max 280 characters)", required=True),
+            "reply_to_tweet_id": ToolParameter(type="string", description="Tweet ID to reply to", required=False),
+        },
     ),
     "extract_json_field": ToolDefinition(
         name="extract_json_field",

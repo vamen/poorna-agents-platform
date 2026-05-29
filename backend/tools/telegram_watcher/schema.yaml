@@ -1,0 +1,27 @@
+# Telegram Watcher — config/credential schema
+# Pure JSON Schema (YAML syntax).
+#
+# $schema: https://json-schema.org/draft/2020-12/schema
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Telegram Bot Config
+description: Configuration and credentials for a Telegram bot.
+
+type: object
+required: [credential]
+additionalProperties: false
+
+properties:
+
+  credential:
+    type: object
+    required: [bot_token]
+    additionalProperties: false
+    description: Telegram bot credentials.
+    properties:
+      bot_token:
+        type: string
+        description: >
+          Bot token issued by @BotFather on Telegram.
+          Format: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyz
+          Never share this token — it gives full control of your bot.

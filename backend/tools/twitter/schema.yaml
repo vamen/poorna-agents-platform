@@ -1,0 +1,33 @@
+# Twitter/X — config/credential schema
+# Credentials are populated automatically by the OAuth 1.0a callback.
+# Users should not need to fill these in manually.
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Twitter Config
+description: OAuth 1.0a credentials for posting to Twitter/X. Connect via the button below.
+
+type: object
+required: [credential]
+additionalProperties: false
+
+properties:
+
+  credential:
+    type: object
+    required: [credential_type, consumer_key, consumer_secret, access_token, access_token_secret]
+    additionalProperties: false
+    properties:
+      credential_type:
+        type: string
+        const: oauth1
+      consumer_key:
+        type: string
+      consumer_secret:
+        type: string
+      access_token:
+        type: string
+      access_token_secret:
+        type: string
+      screen_name:
+        type: string
+        description: Twitter @handle of the connected account (informational).

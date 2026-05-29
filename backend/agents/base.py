@@ -101,6 +101,32 @@ class BaseAgent(ABC):
         return [f"{cls.agent_type}.{e.name}" for e in cls.emitted_events()]
 
     # ------------------------------------------------------------------
+    # LLM client factory
+    # ------------------------------------------------------------------
+
+    def _get_llm_client(self):
+        """Return an OpenAI-compatible client routed through LiteLLM proxy.
+
+        Uses the workflow's virtual key when available; falls back to direct
+        Anthropic API so agents work even before LiteLLM is running.
+        """
+        from openai import OpenAI
+
+        litellm_key = self.config.get("_litellm_key")
+        if litellm_key:
+            from config import settings
+            return OpenAI(
+                api_key=litellm_key,
+                base_url=settings.litellm_base_url,
+            )
+
+        from config import settings
+        return OpenAI(
+            api_key=settings.anthropic_api_key,
+            base_url="https://api.anthropic.com/v1",
+        )
+
+    # ------------------------------------------------------------------
     # Execution stub (Phase 2)
     # ------------------------------------------------------------------
 

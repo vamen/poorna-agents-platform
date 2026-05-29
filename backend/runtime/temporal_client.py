@@ -6,6 +6,7 @@ import logging
 from datetime import timedelta
 
 from temporalio.client import Client
+from temporalio.common import WorkflowIDConflictPolicy
 
 from config import settings
 
@@ -58,6 +59,9 @@ async def start_workflow(
         id=temporal_wf_id,
         task_queue=TASK_QUEUE,
         execution_timeout=timedelta(days=365),
+        # Terminate any running execution with this ID so redeploy always
+        # picks up the latest config/model changes immediately.
+        id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
     )
     logger.info(
         "Started Temporal workflow %s for platform workflow %s",

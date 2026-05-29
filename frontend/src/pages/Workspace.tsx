@@ -30,7 +30,7 @@ export function Workspace() {
     { to: '/workspace', label: 'Workflows', icon: GitBranch, exact: true },
     { to: '/workspace/agents', label: 'Agents', icon: Zap },
     { to: '/workspace/agent-definitions', label: 'Agent Types', icon: Cpu },
-    { to: '/workspace/monitor', label: 'Monitor', icon: Activity },
+    { to: '/workspace/monitor', label: 'Runs', icon: Activity },
   ]
 
   return (

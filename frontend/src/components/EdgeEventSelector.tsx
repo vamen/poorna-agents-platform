@@ -60,7 +60,13 @@ export function EdgeEventSelector({
   })
 
   const sourceTemplate = templates.find((t) => t.name === sourceAgentType)
-  const availableEvents = sourceTemplate?.events ?? []
+  // Qualify short event names with the agent type prefix so they match
+  // what agent_cls.event_names() produces and the workflow compiler expects.
+  // e.g. "message.received" → "telegram_watcher.message.received"
+  const availableEvents = (sourceTemplate?.events ?? []).map((ev) => ({
+    ...ev,
+    name: sourceAgentType ? `${sourceAgentType}.${ev.name}` : ev.name,
+  }))
 
   // Keep local state in sync with edge data while popover is open
   const [localEvent, setLocalEvent] = useState(data?.event ?? '')

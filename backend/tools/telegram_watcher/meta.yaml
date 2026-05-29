@@ -1,0 +1,12 @@
+# Telegram Watcher — metadata
+# Consumed by: canvas palette, agent editor
+
+name: telegram_watcher
+display_name: Telegram Bot
+description: Connect a Telegram bot to watch for incoming messages from a specific user.
+kind: tool
+phase: 1
+icon: telegram
+
+# No OAuth — Telegram uses a static bot token issued by @BotFather.
+auth_type: api_key

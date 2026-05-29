@@ -1,0 +1,45 @@
+name: telegram_watcher
+display_name: Telegram Watcher
+description: Monitors a Telegram bot for incoming messages from a specific user. Emits an event for each message including the last N messages as conversation context.
+is_long_running: true
+
+fields:
+  allowed_user_id:
+    type: string
+    description: Telegram user ID to listen to. Leave blank to accept all users.
+    required: false
+  context_messages:
+    type: number
+    description: Number of prior messages to include as conversation context.
+    default: 5
+
+reasoning:
+  strategy: predict
+  model:
+    - provider: anthropic
+      name: claude-3-5-sonnet-20241022
+  prompt:
+    system: |
+      You are a Telegram message watcher. Pass incoming messages downstream.
+    user: |
+      New Telegram message received.
+      Event: {{ event_name }}
+      Payload: {{ payload }}
+  tools:
+    - telegram_watcher
+
+events:
+  - name: message.received
+    payload:
+      event_schema_type: json
+      value:
+        update_id: number
+        chat_id: string
+        user_id: string
+        username: string
+        text: string
+        file_refs: array
+        conversation: array
+  - name: message.error
+    payload:
+      event_schema_type: string

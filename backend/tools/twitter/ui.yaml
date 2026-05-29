@@ -1,0 +1,17 @@
+# Twitter/X — UI rendering hints
+
+order:
+  - credential
+
+fields:
+
+  - path: credential
+    label: ""
+    widget: oauth2_button
+    button_text: Connect Twitter / X Account
+    connected_text: Twitter Connected
+    help: >
+      Click to authorise the platform to post tweets on your behalf.
+      You will be redirected to Twitter to approve access.
+      Requires TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET
+      to be set in the platform's environment (developer.twitter.com → your app → OAuth 2.0 Client ID and Client Secret).
