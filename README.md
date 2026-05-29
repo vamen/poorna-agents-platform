@@ -1,24 +1,53 @@
-# AI Agent Orchestration Platform
+# Agent Platform
 
-Phase 1 — fully local, zero cloud dependencies.
+Workflow orchestration platform for chaining AI agents. Build multi-step automations on a visual canvas — agents communicate via events, runs are tracked live in the Runs Monitor.
 
-## Quick Start
+## What's working
 
-### Option A: Docker Compose (all services)
+- **Visual workflow canvas** — drag-and-drop React Flow editor, connect agents with typed events
+- **Custom agent definitions** — define agents (ReAct / Predict strategies) with live JSON preview
+- **Temporal-backed execution** — each deployed workflow runs as a Temporal workflow, surviving restarts
+- **Runs Monitor** — live SSE feed of every agent message as it happens
+- **Built-in agents** — Telegram Watcher, Gmail Watcher, Classifier, API Caller
+- **Custom agents** — define any agent via the UI; supports tool use (ReAct loop) with direct provider calls
+- **Tool integrations** — Telegram (send), Twitter/X (post), Gmail, HTTP, filesystem
+- **OAuth flows** — Google (Gmail) and Twitter OAuth 2.0 PKCE, tokens stored per-agent
+- **Conversation history** — cross-session context stitched by chat_id for multi-turn Telegram bots
 
-```bash
-cp .env.example .env
-docker compose up --build
+## Architecture
+
+```
+frontend (React + Vite)
+    └── backend (FastAPI + SQLite)
+            ├── Temporal worker  ← runs workflow graphs
+            ├── Agents           ← built-in + custom (GenericAgent)
+            └── Tools            ← Telegram, Twitter, Gmail, HTTP ...
 ```
 
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:8000
-- Auth sidecar: http://localhost:3000
-- API docs: http://localhost:8000/docs
+## Setup
 
-### Option B: Local development
+### 1. Prerequisites
+
+- Python 3.12 + [uv](https://github.com/astral-sh/uv)
+- Node.js 18+
+- [Temporal CLI](https://docs.temporal.io/cli) — `brew install temporal`
+
+### 2. Environment files
 
 **Backend:**
+```bash
+cp backend/.env.example backend/.env
+# Fill in the values — see backend/.env.example for descriptions
+```
+
+**Frontend:**
+```bash
+cp frontend/.env.example frontend/.env
+# Defaults work for local development, no changes needed
+```
+
+### 3. Backend
+
 ```bash
 cd backend
 uv venv --python 3.12
@@ -26,42 +55,77 @@ uv pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
 
-**Frontend:**
+### 4. Frontend
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-**Auth sidecar:**
+### 5. Temporal (required for workflow execution)
+
 ```bash
-cd auth
-npm install
-npm run dev
+temporal server start-dev
 ```
 
-## Architecture
+### 6. Temporal worker (required for workflow execution)
 
+```bash
+cd backend
+python -m runtime.worker
 ```
-frontend (React + Vite)  →  backend (FastAPI)  →  SQLite
-                         →  auth sidecar (Better Auth)
-```
 
-## What's built (Phase 1)
+App is available at **http://localhost:5173**
 
-- **Workflow canvas** — drag & drop React Flow editor with custom nodes and labeled edges
-- **Agent library** — create/manage agents from YAML-defined templates
-- **Session monitor** — live SSE event stream from workflow executions  
-- **4 agent templates** — Gmail Watcher, Telegram Gateway, Classifier, API Caller
-- **2 workflow templates** — HR Resume Screener, Payment Reconciler
-- **Full CRUD API** — agents, workflows, sessions with Pydantic validation
-- **Alembic migrations** — schema-managed SQLite (swap to Postgres via env var)
-- **Phase 2 stubs** — compiler, Temporal client, LangGraph runner (all return mock data)
+---
 
-## Phase 2 (future)
+## Environment variables
 
-- Swap `DATABASE_URL` from sqlite to postgres
-- Wire `runtime/temporal_client.py` to Temporal Cloud
-- Wire `runtime/langgraph_runner.py` to LangGraph execution  
-- Replace SSE polling with Redis pub/sub
-- Add AWS Secrets Manager via `secret_ref` on agents
+### `backend/.env`
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | No | SQLite by default. Use `postgresql+asyncpg://...` for Postgres. |
+| `ANTHROPIC_API_KEY` | Yes | Platform fallback key. Agents can also supply their own via the UI. |
+| `TEMPORAL_HOST` | No | Defaults to `localhost:7233`. |
+| `GOOGLE_CLIENT_ID` | For Gmail | OAuth 2.0 client from Google Cloud Console. |
+| `GOOGLE_CLIENT_SECRET` | For Gmail | OAuth 2.0 secret. |
+| `TWITTER_CLIENT_ID` | For X Poster | OAuth 2.0 client from Twitter Developer Portal. |
+| `TWITTER_CLIENT_SECRET` | For X Poster | OAuth 2.0 secret. |
+| `FRONTEND_URL` | No | Defaults to `http://localhost:5173`. Used for OAuth redirects. |
+| `BETTER_AUTH_URL` | No | Defaults to `http://localhost:3000`. |
+| `BETTER_AUTH_SECRET` | No | JWT signing secret. Change in production. |
+| `FILE_BACKEND` | No | `local` (default) or `s3`. |
+
+### `frontend/.env`
+
+| Variable | Description |
+|---|---|
+| `VITE_API_URL` | Backend URL. Default: `http://localhost:8000` |
+| `VITE_AUTH_URL` | Auth sidecar URL. Default: `http://localhost:3000` |
+
+---
+
+## Adding a Twitter / X Poster agent
+
+1. Go to [developer.twitter.com](https://developer.twitter.com/) → create an app
+2. Enable **OAuth 2.0**, set callback URL to `http://localhost:8000/auth/twitter/callback`
+3. Required scopes: `tweet.read`, `tweet.write`, `users.read`, `offline.access`
+4. Copy **Client ID** and **Client Secret** into `backend/.env`
+5. In the platform UI: Agents → create an **X Poster** agent → connect Twitter via OAuth
+
+## Adding a Gmail Watcher agent
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → create a project
+2. Enable the **Gmail API**
+3. Create **OAuth 2.0 credentials** (Web application type)
+4. Add `http://localhost:8000/auth/google/callback` as an authorised redirect URI
+5. Copy **Client ID** and **Client Secret** into `backend/.env`
+6. In the platform UI: Agents → create a **Gmail Watcher** agent → connect Google via OAuth
+
+---
+
+## .gitignore note
+
+`.env` files containing secrets are gitignored. Only `.env.example` files are committed.
